@@ -23,8 +23,7 @@ use crate::{
 };
 
 pub const PAIRING_ALPN: &[u8] = b"pairing/1";
-pub const METADATA_ALPN: &[u8] = b"metadata/1";
-pub const TRANSFER_ALPN: &[u8] = b"transfer/1";
+pub const DATA_ALPN: &[u8] = b"data/1";
 
 struct ServerInner {
     endpoint: Endpoint,
@@ -89,8 +88,7 @@ impl Server {
         pairing_enabled: Arc<AtomicBool>,
     ) -> Self {
         endpoint.set_alpns(vec![
-            METADATA_ALPN.to_vec(),
-            TRANSFER_ALPN.to_vec(),
+            DATA_ALPN.to_vec(),
             PAIRING_ALPN.to_vec(),
             MESH_ALPN.to_vec(),
         ]);
@@ -120,10 +118,9 @@ impl Server {
         )
     }
 
-    pub fn router<M, F>(&self, metadata: M, files: F) -> Router
+    pub fn router<D>(&self, data: D) -> Router
     where
-        M: ProtocolHandler,
-        F: ProtocolHandler,
+        D: ProtocolHandler,
     {
         let router = Router::builder(self.inner.endpoint.clone())
             .accept(
@@ -132,8 +129,7 @@ impl Server {
                     server: self.clone(),
                 },
             )
-            .accept(METADATA_ALPN, metadata)
-            .accept(TRANSFER_ALPN, files)
+            .accept(DATA_ALPN, data)
             .accept(MESH_ALPN, self.inner.mesh.clone())
             .spawn();
         self.inner.mesh.start();
@@ -219,7 +215,7 @@ impl Server {
         self.inner.mesh.send(id, payload).await
     }
 
-    pub async fn connect_direct(&self, id: EndpointId, alpn: &[u8]) -> Result<Connection, Error> {
+    pub async fn connect_direct(&self, id: EndpointId) -> Result<Connection, Error> {
         if !self.inner.allowed.contains(id) {
             return Err(Error::new(
                 std::io::ErrorKind::PermissionDenied,
@@ -228,7 +224,7 @@ impl Server {
         }
         self.inner
             .endpoint
-            .connect(id, alpn)
+            .connect(id, DATA_ALPN)
             .await
             .map_err(Error::other)
     }
@@ -237,7 +233,7 @@ impl Server {
         &self,
         id: EndpointId,
     ) -> Result<(Connection, SendStream, RecvStream), Error> {
-        let connection = self.connect_direct(id, TRANSFER_ALPN).await?;
+        let connection = self.connect_direct(id).await?;
         let (send, recv) = connection.open_bi().await?;
         Ok((connection, send, recv))
     }

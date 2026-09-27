@@ -15,16 +15,16 @@ struct Echo;
 
 impl ProtocolHandler for Echo {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
-        let (mut send, mut recv) = connection.accept_bi().await?;
-        send.write_all(b"peer-to-initiator: response")
-            .await
-            .map_err(Error::other)?;
-        let bytes = recv.read_to_end(1024 * 1024).await.map_err(Error::other)?;
-        if bytes != b"initiator-to-peer: distinct request" {
-            return Err(AcceptError::from(Error::other("unexpected stream request")));
+        while let Ok((mut send, mut recv)) = connection.accept_bi().await {
+            send.write_all(b"peer-to-initiator: response")
+                .await
+                .map_err(Error::other)?;
+            let bytes = recv.read_to_end(1024 * 1024).await.map_err(Error::other)?;
+            if bytes != b"initiator-to-peer: distinct request" {
+                return Err(AcceptError::from(Error::other("unexpected stream request")));
+            }
+            send.finish().map_err(Error::other)?;
         }
-        send.finish().map_err(Error::other)?;
-        tokio::time::sleep(Duration::from_millis(200)).await;
         Ok(())
     }
 }
@@ -61,7 +61,7 @@ impl Network {
                     .then_some(*id)
             }));
             let server = Server::new(endpoint, peers);
-            routers.push(server.router(Echo, Echo));
+            routers.push(server.router(Echo));
             servers.push(server);
         }
         Self { servers, routers }
@@ -187,18 +187,21 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
 async fn direct_stream_exchanges_bytes_both_ways() {
     tokio::time::timeout(TIMEOUT, async {
         let network = Network::new(2).await;
-        let (_, mut send, mut recv) = network.servers[0]
-            .open_stream(network.servers[1].endpoint().id())
+        let connection = network.servers[0]
+            .connect_direct(network.servers[1].endpoint().id())
             .await
             .unwrap();
-        send.write_all(b"initiator-to-peer: distinct request")
-            .await
-            .unwrap();
-        send.finish().unwrap();
-        assert_eq!(
-            recv.read_to_end(1024).await.unwrap(),
-            b"peer-to-initiator: response"
-        );
+        for _ in 0..2 {
+            let (mut send, mut recv) = connection.open_bi().await.unwrap();
+            send.write_all(b"initiator-to-peer: distinct request")
+                .await
+                .unwrap();
+            send.finish().unwrap();
+            assert_eq!(
+                recv.read_to_end(1024).await.unwrap(),
+                b"peer-to-initiator: response"
+            );
+        }
         network.close().await;
     })
     .await
@@ -291,8 +294,8 @@ async fn pairing_offer_and_reply_exchange() {
         let initiator = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
-        let _receiver_router = receiver.router(Echo, Echo);
-        let _initiator_router = initiator.router(Echo, Echo);
+        let _receiver_router = receiver.router(Echo);
+        let _initiator_router = initiator.router(Echo);
         initiator.peers().add(receiver.endpoint().id());
         let rejected = initiator
             .endpoint()
@@ -337,7 +340,7 @@ async fn pairing_offer_and_reply_exchange() {
         let unknown = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
-        let _unknown_router = unknown.router(Echo, Echo);
+        let _unknown_router = unknown.router(Echo);
         unknown.peers().add(receiver.endpoint().id());
         assert!(
             unknown

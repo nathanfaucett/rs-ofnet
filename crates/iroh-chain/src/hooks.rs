@@ -93,13 +93,11 @@ mod tests {
         };
 
         assert!(matches!(
-            hook.before_connect(&trusted_addr, crate::METADATA_ALPN)
-                .await,
+            hook.before_connect(&trusted_addr, crate::DATA_ALPN).await,
             BeforeConnectOutcome::Accept
         ));
         assert!(matches!(
-            hook.before_connect(&untrusted_addr, crate::METADATA_ALPN)
-                .await,
+            hook.before_connect(&untrusted_addr, crate::DATA_ALPN).await,
             BeforeConnectOutcome::Reject
         ));
         assert!(matches!(
