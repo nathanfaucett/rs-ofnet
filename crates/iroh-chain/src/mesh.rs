@@ -18,7 +18,7 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 use crate::store::EndpointIdStore;
 
-pub const MESH_ALPN: &[u8] = b"idp-mesh/1";
+pub const MESH_ALPN: &[u8] = b"mesh/1";
 pub const MAX_MESH_PEERS: usize = 6;
 const MAX_PAYLOAD: usize = 64 * 1024;
 const HEADER: usize = 101;

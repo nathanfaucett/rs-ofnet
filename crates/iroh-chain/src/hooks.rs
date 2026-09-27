@@ -93,11 +93,12 @@ mod tests {
         };
 
         assert!(matches!(
-            hook.before_connect(&trusted_addr, b"metadata-sync/1").await,
+            hook.before_connect(&trusted_addr, crate::METADATA_ALPN)
+                .await,
             BeforeConnectOutcome::Accept
         ));
         assert!(matches!(
-            hook.before_connect(&untrusted_addr, b"metadata-sync/1")
+            hook.before_connect(&untrusted_addr, crate::METADATA_ALPN)
                 .await,
             BeforeConnectOutcome::Reject
         ));

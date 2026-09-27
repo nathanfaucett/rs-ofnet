@@ -1,12 +1,12 @@
 use std::{io::Error, time::Duration};
 
 use iroh::{
-    Endpoint, EndpointId,
+    Endpoint,
     address_lookup::MemoryLookup,
     endpoint::{Connection, presets},
     protocol::{AcceptError, ProtocolHandler},
 };
-use iroh_chain::{EndpointIdStore, RootAuthorizer, RootId, Server};
+use iroh_chain::{EndpointIdStore, Server};
 
 const TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -29,17 +29,8 @@ impl ProtocolHandler for Echo {
     }
 }
 
-#[derive(Clone)]
-struct Allow;
-
-impl RootAuthorizer for Allow {
-    async fn authorize(&self, _: RootId, _: EndpointId, _: EndpointId, _: &[u8]) -> bool {
-        true
-    }
-}
-
 struct Network {
-    servers: Vec<Server<Allow>>,
+    servers: Vec<Server>,
     routers: Vec<iroh::protocol::Router>,
 }
 
@@ -69,7 +60,7 @@ impl Network {
                 (peer_index != index && !(excluded == Some(peer_index) && index != peer_index))
                     .then_some(*id)
             }));
-            let server = Server::new(endpoint, peers, Allow);
+            let server = Server::new(endpoint, peers);
             routers.push(server.router(Echo, Echo));
             servers.push(server);
         }
@@ -294,10 +285,10 @@ async fn mesh_tracks_allowlist_changes_and_offline_peers() {
 #[tokio::test]
 async fn pairing_offer_and_reply_exchange() {
     tokio::time::timeout(TIMEOUT, async {
-        let receiver = Server::bind(presets::Minimal, EndpointIdStore::new(), Allow)
+        let receiver = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
-        let initiator = Server::bind(presets::Minimal, EndpointIdStore::new(), Allow)
+        let initiator = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
         let _receiver_router = receiver.router(Echo, Echo);
@@ -343,7 +334,7 @@ async fn pairing_offer_and_reply_exchange() {
         assert_eq!(message.payload, b"pairing-complete");
         receiver.set_pairing_enabled(false);
         assert!(!receiver.pairing_enabled());
-        let unknown = Server::bind(presets::Minimal, EndpointIdStore::new(), Allow)
+        let unknown = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
         let _unknown_router = unknown.router(Echo, Echo);

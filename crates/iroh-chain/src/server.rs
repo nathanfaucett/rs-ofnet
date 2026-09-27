@@ -22,70 +22,25 @@ use crate::{
     pairing::validate_payload,
 };
 
-pub const PAIRING_ALPN: &[u8] = b"idp-pairing/1";
-pub const METADATA_SYNC_ALPN: &[u8] = b"idp-metadata-sync/1";
-pub const FILE_TRANSFER_ALPN: &[u8] = b"idp-file-transfer/1";
+pub const PAIRING_ALPN: &[u8] = b"pairing/1";
+pub const METADATA_ALPN: &[u8] = b"metadata/1";
+pub const TRANSFER_ALPN: &[u8] = b"transfer/1";
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct RootId([u8; 32]);
-
-impl RootId {
-    pub const fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-    pub const fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-
-    #[must_use]
-    pub fn hash(&self) -> String {
-        self.0.iter().map(|byte| format!("{byte:02x}")).collect()
-    }
-
-    pub fn from_application(user_sub: &str, application_id: i64) -> Self {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"idp-root-id/v1");
-        hasher.update(&(user_sub.len() as u64).to_be_bytes());
-        hasher.update(user_sub.as_bytes());
-        hasher.update(&application_id.to_be_bytes());
-        Self(*hasher.finalize().as_bytes())
-    }
-
-    #[must_use]
-    pub fn global_identity() -> Self {
-        Self(*blake3::hash(b"idp-global-identity-v1").as_bytes())
-    }
-}
-
-pub trait RootAuthorizer: Send + Sync + 'static {
-    fn authorize(
-        &self,
-        root_id: RootId,
-        initiating_id: EndpointId,
-        accepting_id: EndpointId,
-        authorization: &[u8],
-    ) -> impl Future<Output = bool> + Send;
-}
-
-struct ServerInner<V>
-where
-    V: RootAuthorizer,
-{
+struct ServerInner {
     endpoint: Endpoint,
     allowed: EndpointIdStore,
     mesh: Mesh,
-    _authorizer: V,
     pairing_offers: broadcast::Sender<PairingOffer>,
     pairing_enabled: Arc<AtomicBool>,
     pairing_generation: AtomicU64,
     pairing_lock: Mutex<()>,
 }
 
-pub struct Server<V: RootAuthorizer> {
-    inner: Arc<ServerInner<V>>,
+pub struct Server {
+    inner: Arc<ServerInner>,
 }
 
-impl<V: RootAuthorizer> Clone for Server<V> {
+impl Clone for Server {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -93,32 +48,25 @@ impl<V: RootAuthorizer> Clone for Server<V> {
     }
 }
 
-impl<V: RootAuthorizer> Server<V> {
-    pub fn new(endpoint: Endpoint, allowed: EndpointIdStore, authorizer: V) -> Self {
-        Self::from_parts(
-            endpoint,
-            allowed,
-            authorizer,
-            Arc::new(AtomicBool::new(false)),
-        )
+impl Server {
+    pub fn new(endpoint: Endpoint, allowed: EndpointIdStore) -> Self {
+        Self::from_parts(endpoint, allowed, Arc::new(AtomicBool::new(false)))
     }
 
     pub async fn bind<P>(
         preset: P,
         allowed: EndpointIdStore,
-        authorizer: V,
     ) -> Result<Self, iroh::endpoint::BindError>
     where
         P: Preset,
     {
-        Self::bind_with_secret_key(preset, SecretKey::generate(), allowed, authorizer).await
+        Self::bind_with_secret_key(preset, SecretKey::generate(), allowed).await
     }
 
     pub async fn bind_with_secret_key<P>(
         preset: P,
         secret_key: SecretKey,
         allowed: EndpointIdStore,
-        authorizer: V,
     ) -> Result<Self, iroh::endpoint::BindError>
     where
         P: Preset,
@@ -132,23 +80,17 @@ impl<V: RootAuthorizer> Server<V> {
             ))
             .bind()
             .await?;
-        Ok(Self::from_parts(
-            endpoint,
-            allowed,
-            authorizer,
-            pairing_enabled,
-        ))
+        Ok(Self::from_parts(endpoint, allowed, pairing_enabled))
     }
 
     fn from_parts(
         endpoint: Endpoint,
         allowed: EndpointIdStore,
-        authorizer: V,
         pairing_enabled: Arc<AtomicBool>,
     ) -> Self {
         endpoint.set_alpns(vec![
-            METADATA_SYNC_ALPN.to_vec(),
-            FILE_TRANSFER_ALPN.to_vec(),
+            METADATA_ALPN.to_vec(),
+            TRANSFER_ALPN.to_vec(),
             PAIRING_ALPN.to_vec(),
             MESH_ALPN.to_vec(),
         ]);
@@ -159,7 +101,6 @@ impl<V: RootAuthorizer> Server<V> {
                 endpoint,
                 allowed,
                 mesh,
-                _authorizer: authorizer,
                 pairing_offers,
                 pairing_enabled,
                 pairing_generation: AtomicU64::new(0),
@@ -170,23 +111,6 @@ impl<V: RootAuthorizer> Server<V> {
 
     pub fn endpoint(&self) -> &Endpoint {
         &self.inner.endpoint
-    }
-
-    pub async fn authorize(
-        &self,
-        root_id: RootId,
-        initiating_id: EndpointId,
-        authorization: &[u8],
-    ) -> bool {
-        self.inner
-            ._authorizer
-            .authorize(
-                root_id,
-                initiating_id,
-                self.inner.endpoint.id(),
-                authorization,
-            )
-            .await
     }
 
     pub fn allowlist_hook(&self) -> AllowlistHook {
@@ -208,8 +132,8 @@ impl<V: RootAuthorizer> Server<V> {
                     server: self.clone(),
                 },
             )
-            .accept(METADATA_SYNC_ALPN, metadata)
-            .accept(FILE_TRANSFER_ALPN, files)
+            .accept(METADATA_ALPN, metadata)
+            .accept(TRANSFER_ALPN, files)
             .accept(MESH_ALPN, self.inner.mesh.clone())
             .spawn();
         self.inner.mesh.start();
@@ -313,7 +237,7 @@ impl<V: RootAuthorizer> Server<V> {
         &self,
         id: EndpointId,
     ) -> Result<(Connection, SendStream, RecvStream), Error> {
-        let connection = self.connect_direct(id, FILE_TRANSFER_ALPN).await?;
+        let connection = self.connect_direct(id, TRANSFER_ALPN).await?;
         let (send, recv) = connection.open_bi().await?;
         Ok((connection, send, recv))
     }
@@ -324,11 +248,11 @@ impl<V: RootAuthorizer> Server<V> {
 }
 
 #[derive(Clone)]
-struct PairingHandler<V: RootAuthorizer> {
-    server: Server<V>,
+struct PairingHandler {
+    server: Server,
 }
 
-impl<V: RootAuthorizer> std::fmt::Debug for PairingHandler<V> {
+impl std::fmt::Debug for PairingHandler {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("PairingHandler")
@@ -336,7 +260,7 @@ impl<V: RootAuthorizer> std::fmt::Debug for PairingHandler<V> {
     }
 }
 
-impl<V: RootAuthorizer> ProtocolHandler for PairingHandler<V> {
+impl ProtocolHandler for PairingHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let remote_id = connection.remote_id();
         let (mut send, mut recv) = connection.accept_bi().await?;
@@ -354,26 +278,5 @@ impl<V: RootAuthorizer> ProtocolHandler for PairingHandler<V> {
             .send(PairingOffer::new(remote_id, payload, send, connection))
             .map_err(|_| Error::other("pairing receiver closed"))?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::RootId;
-
-    #[test]
-    fn derives_stable_domain_separated_root_ids() {
-        let application = RootId::from_application("user", 1);
-        let global_identity = RootId::global_identity();
-        assert_eq!(application, RootId::from_application("user", 1));
-        assert_ne!(application, RootId::from_application("other-user", 1));
-        assert_ne!(application, RootId::from_application("user", 2));
-        assert_ne!(
-            RootId::from_application("a", 12),
-            RootId::from_application("ab", 2)
-        );
-        assert_eq!(global_identity, RootId::global_identity());
-        assert_ne!(application, global_identity);
-        assert_eq!(application.hash().len(), 64);
     }
 }
