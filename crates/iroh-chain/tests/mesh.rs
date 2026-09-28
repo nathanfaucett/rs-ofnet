@@ -6,7 +6,7 @@ use iroh::{
     endpoint::{Connection, presets},
     protocol::{AcceptError, ProtocolHandler},
 };
-use iroh_chain::{EndpointIdStore, Server};
+use iroh_chain::{DATABASE_ALPN, EndpointIdStore, Server};
 
 const TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -61,7 +61,7 @@ impl Network {
                     .then_some(*id)
             }));
             let server = Server::new(endpoint, peers);
-            routers.push(server.router(Echo));
+            routers.push(server.router(Echo, Echo));
             servers.push(server);
         }
         Self { servers, routers }
@@ -187,20 +187,22 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
 async fn direct_stream_exchanges_bytes_both_ways() {
     tokio::time::timeout(TIMEOUT, async {
         let network = Network::new(2).await;
-        let connection = network.servers[0]
-            .connect_direct(network.servers[1].endpoint().id())
-            .await
-            .unwrap();
-        for _ in 0..2 {
-            let (mut send, mut recv) = connection.open_bi().await.unwrap();
-            send.write_all(b"initiator-to-peer: distinct request")
+        for alpn in [iroh_chain::DATA_ALPN, DATABASE_ALPN] {
+            let connection = network.servers[0]
+                .connect_direct_with_alpn(network.servers[1].endpoint().id(), alpn)
                 .await
                 .unwrap();
-            send.finish().unwrap();
-            assert_eq!(
-                recv.read_to_end(1024).await.unwrap(),
-                b"peer-to-initiator: response"
-            );
+            for _ in 0..2 {
+                let (mut send, mut recv) = connection.open_bi().await.unwrap();
+                send.write_all(b"initiator-to-peer: distinct request")
+                    .await
+                    .unwrap();
+                send.finish().unwrap();
+                assert_eq!(
+                    recv.read_to_end(1024).await.unwrap(),
+                    b"peer-to-initiator: response"
+                );
+            }
         }
         network.close().await;
     })
@@ -294,8 +296,8 @@ async fn pairing_offer_and_reply_exchange() {
         let initiator = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
-        let _receiver_router = receiver.router(Echo);
-        let _initiator_router = initiator.router(Echo);
+        let _receiver_router = receiver.router(Echo, Echo);
+        let _initiator_router = initiator.router(Echo, Echo);
         initiator.peers().add(receiver.endpoint().id());
         let rejected = initiator
             .endpoint()
@@ -340,7 +342,7 @@ async fn pairing_offer_and_reply_exchange() {
         let unknown = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
-        let _unknown_router = unknown.router(Echo);
+        let _unknown_router = unknown.router(Echo, Echo);
         unknown.peers().add(receiver.endpoint().id());
         assert!(
             unknown

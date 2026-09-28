@@ -24,6 +24,7 @@ use crate::{
 
 pub const PAIRING_ALPN: &[u8] = b"pairing/1";
 pub const DATA_ALPN: &[u8] = b"data/1";
+pub const DATABASE_ALPN: &[u8] = b"database/1";
 
 struct ServerInner {
     endpoint: Endpoint,
@@ -89,6 +90,7 @@ impl Server {
     ) -> Self {
         endpoint.set_alpns(vec![
             DATA_ALPN.to_vec(),
+            DATABASE_ALPN.to_vec(),
             PAIRING_ALPN.to_vec(),
             MESH_ALPN.to_vec(),
         ]);
@@ -118,9 +120,10 @@ impl Server {
         )
     }
 
-    pub fn router<D>(&self, data: D) -> Router
+    pub fn router<D, B>(&self, data: D, database: B) -> Router
     where
         D: ProtocolHandler,
+        B: ProtocolHandler,
     {
         let router = Router::builder(self.inner.endpoint.clone())
             .accept(
@@ -130,6 +133,7 @@ impl Server {
                 },
             )
             .accept(DATA_ALPN, data)
+            .accept(DATABASE_ALPN, database)
             .accept(MESH_ALPN, self.inner.mesh.clone())
             .spawn();
         self.inner.mesh.start();
@@ -216,6 +220,14 @@ impl Server {
     }
 
     pub async fn connect_direct(&self, id: EndpointId) -> Result<Connection, Error> {
+        self.connect_direct_with_alpn(id, DATA_ALPN).await
+    }
+
+    pub async fn connect_direct_with_alpn(
+        &self,
+        id: EndpointId,
+        alpn: &[u8],
+    ) -> Result<Connection, Error> {
         if !self.inner.allowed.contains(id) {
             return Err(Error::new(
                 std::io::ErrorKind::PermissionDenied,
@@ -224,7 +236,7 @@ impl Server {
         }
         self.inner
             .endpoint
-            .connect(id, DATA_ALPN)
+            .connect(id, alpn)
             .await
             .map_err(Error::other)
     }
