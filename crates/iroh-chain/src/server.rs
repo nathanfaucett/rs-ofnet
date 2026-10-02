@@ -17,18 +17,18 @@ use tokio::sync::broadcast;
 
 use crate::{
     EndpointIdStore, PairingOffer,
-    hooks::AllowlistHook,
+    hooks::{AllowlistHook, AlpnAllowlist},
     mesh::{MESH_ALPN, Mesh, Message},
     pairing::validate_payload,
 };
 
 pub const PAIRING_ALPN: &[u8] = b"pairing/1";
 pub const DATA_ALPN: &[u8] = b"data/1";
-pub const DATABASE_ALPN: &[u8] = b"database/1";
 
 struct ServerInner {
     endpoint: Endpoint,
     allowed: EndpointIdStore,
+    alpn_allowlist: AlpnAllowlist,
     mesh: Mesh,
     pairing_offers: broadcast::Sender<PairingOffer>,
     pairing_enabled: Arc<AtomicBool>,
@@ -50,7 +50,12 @@ impl Clone for Server {
 
 impl Server {
     pub fn new(endpoint: Endpoint, allowed: EndpointIdStore) -> Self {
-        Self::from_parts(endpoint, allowed, Arc::new(AtomicBool::new(false)))
+        Self::from_parts(
+            endpoint,
+            allowed,
+            Arc::new(AtomicBool::new(false)),
+            AlpnAllowlist::default(),
+        )
     }
 
     pub async fn bind<P>(
@@ -72,25 +77,32 @@ impl Server {
         P: Preset,
     {
         let pairing_enabled = Arc::new(AtomicBool::new(false));
+        let alpn_allowlist = AlpnAllowlist::default();
         let endpoint = Endpoint::builder(preset)
             .secret_key(secret_key)
             .hooks(AllowlistHook::new(
                 allowed.clone(),
                 Arc::clone(&pairing_enabled),
+                alpn_allowlist.clone(),
             ))
             .bind()
             .await?;
-        Ok(Self::from_parts(endpoint, allowed, pairing_enabled))
+        Ok(Self::from_parts(
+            endpoint,
+            allowed,
+            pairing_enabled,
+            alpn_allowlist,
+        ))
     }
 
     fn from_parts(
         endpoint: Endpoint,
         allowed: EndpointIdStore,
         pairing_enabled: Arc<AtomicBool>,
+        alpn_allowlist: AlpnAllowlist,
     ) -> Self {
         endpoint.set_alpns(vec![
             DATA_ALPN.to_vec(),
-            DATABASE_ALPN.to_vec(),
             PAIRING_ALPN.to_vec(),
             MESH_ALPN.to_vec(),
         ]);
@@ -100,6 +112,7 @@ impl Server {
             inner: Arc::new(ServerInner {
                 endpoint,
                 allowed,
+                alpn_allowlist,
                 mesh,
                 pairing_offers,
                 pairing_enabled,
@@ -113,17 +126,21 @@ impl Server {
         &self.inner.endpoint
     }
 
+    pub fn allow_peer_for_alpn(&self, peer: EndpointId, alpn: &[u8], duration: Duration) {
+        self.inner.alpn_allowlist.allow_for(peer, alpn, duration);
+    }
+
     pub fn allowlist_hook(&self) -> AllowlistHook {
         AllowlistHook::new(
             self.inner.allowed.clone(),
             Arc::clone(&self.inner.pairing_enabled),
+            self.inner.alpn_allowlist.clone(),
         )
     }
 
-    pub fn router<D, B>(&self, data: D, database: B) -> Router
+    pub fn router<D>(&self, data: D) -> Router
     where
         D: ProtocolHandler,
-        B: ProtocolHandler,
     {
         let router = Router::builder(self.inner.endpoint.clone())
             .accept(
@@ -133,8 +150,34 @@ impl Server {
                 },
             )
             .accept(DATA_ALPN, data)
-            .accept(DATABASE_ALPN, database)
             .accept(MESH_ALPN, self.inner.mesh.clone())
+            .spawn();
+        self.inner.mesh.start();
+        router
+    }
+
+    pub fn router_with_protocol<D, H>(&self, data: D, alpn: &[u8], handler: H) -> Router
+    where
+        D: ProtocolHandler,
+        H: ProtocolHandler,
+    {
+        let mut alpns = vec![
+            DATA_ALPN.to_vec(),
+            PAIRING_ALPN.to_vec(),
+            MESH_ALPN.to_vec(),
+        ];
+        alpns.push(alpn.to_vec());
+        self.inner.endpoint.set_alpns(alpns);
+        let router = Router::builder(self.inner.endpoint.clone())
+            .accept(
+                PAIRING_ALPN,
+                PairingHandler {
+                    server: self.clone(),
+                },
+            )
+            .accept(DATA_ALPN, data)
+            .accept(MESH_ALPN, self.inner.mesh.clone())
+            .accept(alpn, handler)
             .spawn();
         self.inner.mesh.start();
         router

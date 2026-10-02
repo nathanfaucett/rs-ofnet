@@ -1,6 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 use iroh::endpoint::{
@@ -9,16 +13,43 @@ use iroh::endpoint::{
 
 use crate::{EndpointIdStore, PAIRING_ALPN};
 
+type TemporaryPeers = BTreeMap<(iroh::EndpointId, Vec<u8>), Instant>;
+
+#[derive(Clone, Default)]
+pub(crate) struct AlpnAllowlist {
+    peers: Arc<Mutex<TemporaryPeers>>,
+}
+
+impl AlpnAllowlist {
+    pub(crate) fn allow_for(&self, peer: iroh::EndpointId, alpn: &[u8], duration: Duration) {
+        let mut peers = self.peers.lock().expect("ALPN allowlist lock poisoned");
+        peers.retain(|_, expires_at| *expires_at > Instant::now());
+        peers.insert((peer, alpn.to_vec()), Instant::now() + duration);
+    }
+
+    fn contains(&self, peer: iroh::EndpointId, alpn: &[u8]) -> bool {
+        let mut peers = self.peers.lock().expect("ALPN allowlist lock poisoned");
+        peers.retain(|_, expires_at| *expires_at > Instant::now());
+        peers.contains_key(&(peer, alpn.to_vec()))
+    }
+}
+
 pub struct AllowlistHook {
     allowed: EndpointIdStore,
     pairing_enabled: Arc<AtomicBool>,
+    alpn_allowlist: AlpnAllowlist,
 }
 
 impl AllowlistHook {
-    pub(crate) fn new(allowed: EndpointIdStore, pairing_enabled: Arc<AtomicBool>) -> Self {
+    pub(crate) fn new(
+        allowed: EndpointIdStore,
+        pairing_enabled: Arc<AtomicBool>,
+        alpn_allowlist: AlpnAllowlist,
+    ) -> Self {
         Self {
             allowed,
             pairing_enabled,
+            alpn_allowlist,
         }
     }
 }
@@ -38,6 +69,7 @@ impl EndpointHooks for AllowlistHook {
         alpn: &'a [u8],
     ) -> BeforeConnectOutcome {
         if self.allowed.contains(remote_addr.id)
+            || self.alpn_allowlist.contains(remote_addr.id, alpn)
             || (alpn == PAIRING_ALPN && self.pairing_enabled.load(Ordering::Acquire))
         {
             BeforeConnectOutcome::Accept
@@ -49,7 +81,8 @@ impl EndpointHooks for AllowlistHook {
     async fn after_handshake<'a>(&'a self, conn: &'a Connection) -> AfterHandshakeOutcome {
         let allowed = self.allowed.contains(conn.remote_id());
         let pairing = conn.alpn() == PAIRING_ALPN && self.pairing_enabled.load(Ordering::Acquire);
-        if allowed || pairing {
+        let alpn_allowed = self.alpn_allowlist.contains(conn.remote_id(), conn.alpn());
+        if allowed || pairing || alpn_allowed {
             AfterHandshakeOutcome::Accept
         } else {
             AfterHandshakeOutcome::Reject {
@@ -72,7 +105,7 @@ mod tests {
         endpoint::{BeforeConnectOutcome, EndpointHooks},
     };
 
-    use super::AllowlistHook;
+    use super::{AllowlistHook, AlpnAllowlist};
     use crate::{EndpointIdStore, PAIRING_ALPN};
 
     #[tokio::test]
@@ -82,7 +115,11 @@ mod tests {
         let untrusted = SecretKey::generate().public();
         allowed.replace([trusted]);
         let pairing_enabled = Arc::new(AtomicBool::new(false));
-        let hook = AllowlistHook::new(allowed, Arc::clone(&pairing_enabled));
+        let hook = AllowlistHook::new(
+            allowed,
+            Arc::clone(&pairing_enabled),
+            AlpnAllowlist::default(),
+        );
         let trusted_addr = EndpointAddr {
             id: trusted,
             addrs: BTreeSet::new(),
@@ -109,6 +146,23 @@ mod tests {
         assert!(matches!(
             hook.before_connect(&untrusted_addr, PAIRING_ALPN).await,
             BeforeConnectOutcome::Accept
+        ));
+
+        let bootstrap_alpn = b"bootstrap/1";
+        let alpn_allowlist = AlpnAllowlist::default();
+        alpn_allowlist.allow_for(untrusted, bootstrap_alpn, std::time::Duration::from_secs(1));
+        let hook = AllowlistHook::new(
+            EndpointIdStore::new(),
+            Arc::new(AtomicBool::new(false)),
+            alpn_allowlist,
+        );
+        assert!(matches!(
+            hook.before_connect(&untrusted_addr, bootstrap_alpn).await,
+            BeforeConnectOutcome::Accept
+        ));
+        assert!(matches!(
+            hook.before_connect(&untrusted_addr, crate::DATA_ALPN).await,
+            BeforeConnectOutcome::Reject
         ));
     }
 }

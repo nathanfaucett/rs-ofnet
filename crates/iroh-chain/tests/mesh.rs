@@ -6,7 +6,7 @@ use iroh::{
     endpoint::{Connection, presets},
     protocol::{AcceptError, ProtocolHandler},
 };
-use iroh_chain::{DATABASE_ALPN, EndpointIdStore, Server};
+use iroh_chain::{DATA_ALPN, EndpointIdStore, Server};
 
 const TIMEOUT: Duration = Duration::from_secs(45);
 
@@ -61,7 +61,7 @@ impl Network {
                     .then_some(*id)
             }));
             let server = Server::new(endpoint, peers);
-            routers.push(server.router(Echo, Echo));
+            routers.push(server.router(Echo));
             servers.push(server);
         }
         Self { servers, routers }
@@ -184,10 +184,60 @@ async fn mesh_routes_broadcast_and_direct_messages_beyond_six_neighbors() {
 }
 
 #[tokio::test]
+async fn router_with_protocol_advertises_and_routes_extra_and_existing_alpns() {
+    const EXTRA_ALPN: &[u8] = b"caller-protocol/1";
+    tokio::time::timeout(TIMEOUT, async {
+        let lookup = MemoryLookup::new();
+        let first_endpoint = Endpoint::builder(presets::Minimal)
+            .address_lookup(lookup.clone())
+            .bind()
+            .await
+            .unwrap();
+        let second_endpoint = Endpoint::builder(presets::Minimal)
+            .address_lookup(lookup.clone())
+            .bind()
+            .await
+            .unwrap();
+        lookup.add_endpoint_info(first_endpoint.addr());
+        lookup.add_endpoint_info(second_endpoint.addr());
+        let first_id = first_endpoint.id();
+        let second_id = second_endpoint.id();
+        let first_peers = EndpointIdStore::new();
+        first_peers.add(second_id);
+        let second_peers = EndpointIdStore::new();
+        second_peers.add(first_id);
+        let first_server = Server::new(first_endpoint, first_peers);
+        let second_server = Server::new(second_endpoint, second_peers);
+        let first_router = first_server.router(Echo);
+        let second_router = second_server.router_with_protocol(Echo, EXTRA_ALPN, Echo);
+        for alpn in [DATA_ALPN, EXTRA_ALPN] {
+            let connection = first_server
+                .connect_direct_with_alpn(second_id, alpn)
+                .await
+                .unwrap();
+            let (mut send, mut recv) = connection.open_bi().await.unwrap();
+            send.write_all(b"initiator-to-peer: distinct request")
+                .await
+                .unwrap();
+            send.finish().unwrap();
+            assert_eq!(
+                recv.read_to_end(1024).await.unwrap(),
+                b"peer-to-initiator: response"
+            );
+        }
+        first_server.close().await;
+        second_server.close().await;
+        drop((first_router, second_router));
+    })
+    .await
+    .expect("custom protocol routing test timed out");
+}
+
+#[tokio::test]
 async fn direct_stream_exchanges_bytes_both_ways() {
     tokio::time::timeout(TIMEOUT, async {
         let network = Network::new(2).await;
-        for alpn in [iroh_chain::DATA_ALPN, DATABASE_ALPN] {
+        for alpn in [iroh_chain::DATA_ALPN] {
             let connection = network.servers[0]
                 .connect_direct_with_alpn(network.servers[1].endpoint().id(), alpn)
                 .await
@@ -296,8 +346,8 @@ async fn pairing_offer_and_reply_exchange() {
         let initiator = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
-        let _receiver_router = receiver.router(Echo, Echo);
-        let _initiator_router = initiator.router(Echo, Echo);
+        let _receiver_router = receiver.router(Echo);
+        let _initiator_router = initiator.router(Echo);
         initiator.peers().add(receiver.endpoint().id());
         let rejected = initiator
             .endpoint()
@@ -342,7 +392,7 @@ async fn pairing_offer_and_reply_exchange() {
         let unknown = Server::bind(presets::Minimal, EndpointIdStore::new())
             .await
             .unwrap();
-        let _unknown_router = unknown.router(Echo, Echo);
+        let _unknown_router = unknown.router(Echo);
         unknown.peers().add(receiver.endpoint().id());
         assert!(
             unknown
