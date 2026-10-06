@@ -1,6 +1,6 @@
 # AGENTS.md
 
-For Domain information, see the [Domain Model](CONTEXT.md).
+For Domain information, see the [Domain Model](GLOSSARY.md).
 
 ## Refactoring Protocol
 
@@ -47,3 +47,17 @@ For Domain information, see the [Domain Model](CONTEXT.md).
 
 - Assess new features and changes for complexity, risk, and priority before implementation.
 - Use `just crap` to evaluate code complexity and identify areas for refactoring.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default canonical labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Use a single-context `GLOSSARY.md` at the repo root and ADRs under `docs/adr/`. See `docs/agents/domain.md`.
