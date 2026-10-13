@@ -338,6 +338,32 @@ async fn mesh_tracks_allowlist_changes_and_offline_peers() {
 }
 
 #[tokio::test]
+async fn acceptance_generations_change_on_reopen_and_publish_natural_expiry() {
+    let server = Server::bind(presets::Minimal, EndpointIdStore::new())
+        .await
+        .expect("isolated acceptance server");
+    let mut acceptance = server.subscribe_pairing_acceptance();
+    assert_eq!(*acceptance.borrow(), None);
+    server.set_pairing_enabled(true);
+    let original = server
+        .pairing_acceptance_generation()
+        .expect("first acceptance window");
+    assert_eq!(*acceptance.borrow(), Some(original));
+    server.set_pairing_enabled(false);
+    server.set_pairing_enabled(true);
+    assert_ne!(server.pairing_acceptance_generation(), Some(original));
+    server.set_pairing_enabled_for(Duration::from_millis(10));
+    assert!(server.pairing_acceptance_generation().is_some());
+    tokio::time::timeout(Duration::from_secs(5), acceptance.wait_for(Option::is_none))
+        .await
+        .expect("existing window expiry notification")
+        .expect("live acceptance publisher");
+    assert!(!server.pairing_enabled());
+    assert_eq!(server.pairing_acceptance_generation(), None);
+    server.close().await;
+}
+
+#[tokio::test]
 async fn pairing_offer_and_reply_exchange() {
     tokio::time::timeout(TIMEOUT, async {
         let receiver = Server::bind(presets::Minimal, EndpointIdStore::new())
@@ -376,8 +402,14 @@ async fn pairing_offer_and_reply_exchange() {
             .unwrap();
         assert_eq!(offer.remote_id, initiator.endpoint().id());
         assert_eq!(offer.payload, b"pair me");
+        assert_eq!(
+            Some(offer.acceptance_generation),
+            receiver.pairing_acceptance_generation()
+        );
+        assert!(!offer.is_closed());
         offer.reply(b"paired").await.unwrap();
         assert_eq!(sending.await.unwrap().unwrap(), b"paired");
+
         receiver.peers().add(initiator.endpoint().id());
         let mut messages = receiver.subscribe_messages();
         initiator
@@ -401,6 +433,10 @@ async fn pairing_offer_and_reply_exchange() {
                 .is_err()
         );
         receiver.close().await;
+        tokio::time::timeout(Duration::from_secs(5), offer.closed())
+            .await
+            .expect("answered pairing offer observes transport closure");
+        assert!(offer.is_closed());
         initiator.close().await;
         unknown.close().await;
     })

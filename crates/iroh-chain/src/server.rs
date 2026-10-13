@@ -13,7 +13,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler, Router},
 };
 use noq::{RecvStream, SendStream};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use crate::{
     EndpointIdStore, PairingOffer,
@@ -33,6 +33,7 @@ struct ServerInner {
     pairing_offers: broadcast::Sender<PairingOffer>,
     pairing_enabled: Arc<AtomicBool>,
     pairing_generation: AtomicU64,
+    pairing_acceptance: watch::Sender<Option<u64>>,
     pairing_lock: Mutex<()>,
 }
 
@@ -107,6 +108,7 @@ impl Server {
             MESH_ALPN.to_vec(),
         ]);
         let (pairing_offers, _) = broadcast::channel(64);
+        let (pairing_acceptance, _) = watch::channel(None);
         let mesh = Mesh::new(endpoint.clone(), allowed.clone());
         Self {
             inner: Arc::new(ServerInner {
@@ -117,6 +119,7 @@ impl Server {
                 pairing_offers,
                 pairing_enabled,
                 pairing_generation: AtomicU64::new(0),
+                pairing_acceptance,
                 pairing_lock: Mutex::new(()),
             }),
         }
@@ -193,8 +196,11 @@ impl Server {
             .pairing_lock
             .lock()
             .expect("pairing lock poisoned");
-        self.inner.pairing_generation.fetch_add(1, Ordering::AcqRel);
+        let generation = self.inner.pairing_generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.inner.pairing_enabled.store(enabled, Ordering::Release);
+        self.inner
+            .pairing_acceptance
+            .send_replace(enabled.then_some(generation));
     }
 
     pub fn set_pairing_enabled_for(&self, duration: Duration) {
@@ -206,6 +212,7 @@ impl Server {
                 .expect("pairing lock poisoned");
             let generation = self.inner.pairing_generation.fetch_add(1, Ordering::AcqRel) + 1;
             self.inner.pairing_enabled.store(true, Ordering::Release);
+            self.inner.pairing_acceptance.send_replace(Some(generation));
             generation
         };
         let inner = Arc::clone(&self.inner);
@@ -214,12 +221,23 @@ impl Server {
             let _lock = inner.pairing_lock.lock().expect("pairing lock poisoned");
             if inner.pairing_generation.load(Ordering::Acquire) == generation {
                 inner.pairing_enabled.store(false, Ordering::Release);
+                inner.pairing_acceptance.send_replace(None);
             }
         });
     }
 
     pub fn pairing_enabled(&self) -> bool {
         self.inner.pairing_enabled.load(Ordering::Acquire)
+    }
+
+    /// Identifies the current acceptance window; every enable/disable invalidates older offers.
+    pub fn pairing_acceptance_generation(&self) -> Option<u64> {
+        *self.inner.pairing_acceptance.borrow()
+    }
+
+    /// Observes acceptance changes, including natural expiration, without polling.
+    pub fn subscribe_pairing_acceptance(&self) -> watch::Receiver<Option<u64>> {
+        self.inner.pairing_acceptance.subscribe()
     }
 
     pub async fn is_allowed(&self, endpoint_id: EndpointId) -> bool {
@@ -294,6 +312,7 @@ impl Server {
     }
 
     pub async fn close(&self) {
+        self.set_pairing_enabled(false);
         self.inner.endpoint.close().await;
     }
 }
@@ -314,19 +333,24 @@ impl std::fmt::Debug for PairingHandler {
 impl ProtocolHandler for PairingHandler {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         let remote_id = connection.remote_id();
+        let generation = self.server.pairing_acceptance_generation();
         let (mut send, mut recv) = connection.accept_bi().await?;
         let payload = recv
             .read_to_end(crate::MAX_PAIRING_PAYLOAD_LENGTH)
             .await
             .map_err(Error::other)?;
-        if !self.server.pairing_enabled() {
+        let Some(generation) = generation
+            .filter(|generation| self.server.pairing_acceptance_generation() == Some(*generation))
+        else {
             send.finish().map_err(Error::other)?;
             return Ok(());
-        }
+        };
         self.server
             .inner
             .pairing_offers
-            .send(PairingOffer::new(remote_id, payload, send, connection))
+            .send(PairingOffer::new(
+                remote_id, payload, send, connection, generation,
+            ))
             .map_err(|_| Error::other("pairing receiver closed"))?;
         Ok(())
     }

@@ -13,6 +13,7 @@ pub const MAX_PAIRING_PAYLOAD_LENGTH: usize = 4096;
 pub struct PairingOffer {
     pub remote_id: EndpointId,
     pub payload: Vec<u8>,
+    pub acceptance_generation: u64,
     response: Arc<Mutex<Option<SendStream>>>,
     _connection: Connection,
 }
@@ -23,13 +24,24 @@ impl PairingOffer {
         payload: Vec<u8>,
         response: SendStream,
         connection: Connection,
+        acceptance_generation: u64,
     ) -> Self {
         Self {
             remote_id,
             payload,
+            acceptance_generation,
             response: Arc::new(Mutex::new(Some(response))),
             _connection: connection,
         }
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self._connection.close_reason().is_some()
+    }
+
+    /// Keep the offer alive until the transport closes so a finished reply is not truncated.
+    pub async fn closed(&self) {
+        self._connection.closed().await;
     }
 
     pub async fn reply(&self, payload: &[u8]) -> Result<(), Error> {
