@@ -88,20 +88,45 @@ jobs:
       - name: Install just
         run: cargo install just --locked
 
-      - name: Install llvm-cov
-        run: cargo install cargo-llvm-cov --locked
-
-      - name: Install crap
-        run: cargo install cargo-crap --version 0.5.0 --locked
-
-      - name: Install cargo-hack
-        run: cargo install cargo-hack --locked
-
       - name: Show rustc/cargo
         run: rustc --version && cargo --version
 
-      - name: Crap coverage
-        run: just crap-summary
-
       - name: Test
         run: just test
+
+  wasm:
+    name: WASM build and browser tests
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install just
+        run: cargo install just --locked
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build WASM crate
+        run: just build-wasm
+
+      - name: Browser tests
+        run: just test-wasm

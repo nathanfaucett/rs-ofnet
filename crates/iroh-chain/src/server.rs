@@ -216,8 +216,18 @@ impl Server {
             generation
         };
         let inner = Arc::clone(&self.inner);
+        #[cfg(not(wasm_browser))]
         tokio::spawn(async move {
             tokio::time::sleep(duration).await;
+            let _lock = inner.pairing_lock.lock().expect("pairing lock poisoned");
+            if inner.pairing_generation.load(Ordering::Acquire) == generation {
+                inner.pairing_enabled.store(false, Ordering::Release);
+                inner.pairing_acceptance.send_replace(None);
+            }
+        });
+        #[cfg(wasm_browser)]
+        wasm_bindgen_futures::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
             let _lock = inner.pairing_lock.lock().expect("pairing lock poisoned");
             if inner.pairing_generation.load(Ordering::Acquire) == generation {
                 inner.pairing_enabled.store(false, Ordering::Release);
