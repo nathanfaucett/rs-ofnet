@@ -24,3 +24,10 @@ noq = { version = "1.2", default-features = false, features = [] }
 js-sys = { version = "0.3", default-features = false }
 wasm-bindgen = { version = "0.2", default-features = false }
 wasm-bindgen-futures = { version = "0.4", default-features = false }
+
+[dev-dependencies]
+# Web
+gloo-timers = { version = "0.3", default-features = false, features = [
+    "futures",
+] }
+wasm-bindgen-test = { version = "0.3" }

@@ -17,6 +17,8 @@ help:
     @printf "  fmt-check      Check formatting for all workspace crates\n"
     @printf "  clean          Remove build artifacts\n"
     @printf "  doc            Build workspace documentation\n"
+    @printf "  build-wasm     Build the WASM crate for wasm32-unknown-unknown\n"
+    @printf "  test-wasm      Run browser tests for the WASM crate in headless Chrome\n"
 
 build:
     cargo build --workspace
@@ -56,3 +58,9 @@ clean:
 
 doc:
     cargo doc --workspace --no-deps
+
+build-wasm:
+    cargo build -p iroh-chain-wasm --target wasm32-unknown-unknown
+
+test-wasm:
+    wasm-pack test --headless --chrome crates/iroh-chain-wasm

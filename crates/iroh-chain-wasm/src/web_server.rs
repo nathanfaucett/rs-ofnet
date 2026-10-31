@@ -159,12 +159,25 @@ impl WebServer {
             .lock()
             .expect("offers poisoned")
             .get(&offer_handle)
-            .map(PairingOffer::clone);
+            .cloned();
         let Some(offer) = offer else {
             return Err(JsError::new("unknown pairing offer handle"));
         };
         offer
             .reply(payload)
+            .await
+            .map_err(|error| JsError::new(&error.to_string()))
+    }
+
+    pub async fn send_pairing_offer(
+        &self,
+        destination_id: &str,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, JsError> {
+        let id = EndpointId::from_str(destination_id)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        self.server
+            .send_pairing_offer(id, payload)
             .await
             .map_err(|error| JsError::new(&error.to_string()))
     }
