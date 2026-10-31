@@ -4,8 +4,13 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+
+#[cfg(not(wasm_browser))]
+use std::time::Instant;
+#[cfg(wasm_browser)]
+use web_time::Instant;
 
 use iroh::endpoint::{
     AfterHandshakeOutcome, BeforeConnectOutcome, Connection, EndpointHooks, VarInt,

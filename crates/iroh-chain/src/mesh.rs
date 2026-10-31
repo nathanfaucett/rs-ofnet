@@ -18,6 +18,40 @@ use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 use crate::store::EndpointIdStore;
 
+#[cfg(not(wasm_browser))]
+fn spawn<F: std::future::Future<Output = ()> + Send + 'static>(future: F) {
+    tokio::spawn(future);
+}
+
+#[cfg(wasm_browser)]
+fn spawn<F: std::future::Future<Output = ()> + 'static>(future: F) {
+    wasm_bindgen_futures::spawn_local(future);
+}
+
+async fn sleep(duration: Duration) {
+    #[cfg(not(wasm_browser))]
+    tokio::time::sleep(duration).await;
+    #[cfg(wasm_browser)]
+    gloo_timers::future::TimeoutFuture::new(duration.as_millis() as u32).await;
+}
+
+async fn timeout<F: std::future::Future>(duration: Duration, future: F) -> Option<F::Output> {
+    #[cfg(not(wasm_browser))]
+    {
+        tokio::time::timeout(duration, future).await.ok()
+    }
+    #[cfg(wasm_browser)]
+    {
+        use futures::future::{Either, select};
+        let millis = duration.as_millis().min(u32::MAX as u128) as u32;
+        let timer = Box::pin(gloo_timers::future::TimeoutFuture::new(millis));
+        match select(Box::pin(future), timer).await {
+            Either::Left((output, _)) => Some(output),
+            Either::Right(((), _)) => None,
+        }
+    }
+}
+
 pub const MESH_ALPN: &[u8] = b"mesh/1";
 pub const MAX_MESH_PEERS: usize = 6;
 const MAX_PAYLOAD: usize = 64 * 1024;
@@ -142,7 +176,7 @@ impl Mesh {
             return;
         }
         let weak = Arc::downgrade(&self.inner);
-        tokio::spawn(async move {
+        spawn(async move {
             loop {
                 let Some(inner) = weak.upgrade() else { break };
                 if inner.endpoint.is_closed() {
@@ -151,7 +185,7 @@ impl Mesh {
                 let mesh = Mesh { inner };
                 mesh.reconcile(false).await;
                 drop(mesh);
-                tokio::time::sleep(RETRY).await;
+                sleep(RETRY).await;
             }
         });
     }
@@ -253,13 +287,13 @@ impl Mesh {
         let bytes = frame(id, message, hops);
         let mut first_error = None;
         for conn in connections {
-            let result = tokio::time::timeout(IO_TIMEOUT, async {
+            let result = timeout(IO_TIMEOUT, async {
                 let mut stream = conn.open_uni().await.map_err(Error::other)?;
                 stream.write_all(&bytes).await.map_err(Error::other)?;
                 stream.finish().map_err(Error::other)
             })
             .await
-            .map_err(|_| Error::new(ErrorKind::TimedOut, "mesh send timed out"))
+            .ok_or_else(|| Error::new(ErrorKind::TimedOut, "mesh send timed out"))
             .and_then(|result| result);
             if let Err(error) = result {
                 first_error.get_or_insert(error);
@@ -296,12 +330,12 @@ impl Mesh {
             {
                 continue;
             }
-            if let Ok(Ok(conn)) =
-                tokio::time::timeout(IO_TIMEOUT, self.inner.endpoint.connect(id, MESH_ALPN)).await
+            if let Some(Ok(conn)) =
+                timeout(IO_TIMEOUT, self.inner.endpoint.connect(id, MESH_ALPN)).await
                 && self.register(conn.clone(), true).await
             {
                 let weak = Arc::downgrade(&self.inner);
-                tokio::spawn(async move { Mesh::run(weak, conn).await });
+                spawn(async move { Mesh::run(weak, conn).await });
             }
         }
     }
@@ -334,9 +368,18 @@ impl Mesh {
     async fn run(weak: Weak<Inner>, conn: Connection) {
         let peer = conn.remote_id();
         loop {
+            #[cfg(not(wasm_browser))]
             let stream = tokio::select! {
                 stream = conn.accept_uni() => match stream { Ok(stream) => stream, Err(_) => break },
                 _ = conn.closed() => break,
+            };
+            #[cfg(wasm_browser)]
+            let stream = {
+                use futures::future::{Either, select};
+                match select(Box::pin(conn.accept_uni()), Box::pin(conn.closed())).await {
+                    Either::Left((Ok(stream), _)) => stream,
+                    _ => break,
+                }
             };
             let Some(inner) = weak.upgrade() else { break };
             let mesh = Mesh { inner };
@@ -347,10 +390,9 @@ impl Mesh {
                 conn.close(VarInt::from_u32(0), b"mesh peer removed");
                 break;
             }
-            tokio::spawn(async move {
+            spawn(async move {
                 let mut stream = stream;
-                if let Ok(Ok(bytes)) =
-                    tokio::time::timeout(IO_TIMEOUT, stream.read_to_end(MAX_FRAME)).await
+                if let Some(Ok(bytes)) = timeout(IO_TIMEOUT, stream.read_to_end(MAX_FRAME)).await
                     && let Ok((id, message, hops)) = parse(&bytes)
                     && (message.source == peer || mesh.inner.peers.contains(message.source))
                     && message.destination.is_none_or(|dest| {

@@ -1395,7 +1395,10 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "blake3",
+ "cfg_aliases",
  "env_logger",
+ "futures",
+ "gloo-timers",
  "iroh",
  "log",
  "noq",
@@ -1403,6 +1406,8 @@ dependencies = [
  "test-log",
  "tokio",
  "utoipa",
+ "wasm-bindgen-futures",
+ "web-time",
 ]
 
 [[package]]
