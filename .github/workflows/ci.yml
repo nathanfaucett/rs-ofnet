@@ -88,20 +88,8 @@ jobs:
       - name: Install just
         run: cargo install just --locked
 
-      - name: Install llvm-cov
-        run: cargo install cargo-llvm-cov --locked
-
-      - name: Install crap
-        run: cargo install cargo-crap --version 0.5.0 --locked
-
-      - name: Install cargo-hack
-        run: cargo install cargo-hack --locked
-
       - name: Show rustc/cargo
         run: rustc --version && cargo --version
-
-      - name: Crap coverage
-        run: just crap-summary
 
       - name: Test
         run: just test

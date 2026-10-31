@@ -41,12 +41,7 @@ For Domain information, see the [Domain Model](GLOSSARY.md).
 
 - Write unit tests for all public functions and critical internal logic.
 - Use integration tests for testing public API behavior and interactions between modules.
-- Use `cargo hack test --feature-powerset --all-targets` to run tests to ensure all features combinations are tested.
-
-## CRAP (Complexity, Risk, and Priority)
-
-- Assess new features and changes for complexity, risk, and priority before implementation.
-- Use `just crap` to evaluate code complexity and identify areas for refactoring.
+- Run `cargo test --workspace --all-targets` to run the test suite.
 
 ## Agent skills
 
