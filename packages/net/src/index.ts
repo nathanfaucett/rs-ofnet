@@ -1,27 +1,25 @@
 /**
- * @ofnet/net - TypeScript wrapper for ofnet WASM (mesh networking in the browser)
+ * @ofnet/net — mesh networking in the browser via ofnet WASM.
  *
- * Provides a typed interface to the ofnet WASM module, which lets browser
- * endpoints join a mesh, exchange broadcasts and direct messages, and
- * participate in pairing — all through relay servers.
+ * ```ts
+ * import { Endpoint } from "@ofnet/net";
+ *
+ * const ep = await Endpoint.create();
+ * ep.onMessage((msg) => console.log(new TextDecoder().decode(msg.payload)));
+ * await ep.broadcast(new TextEncoder().encode("hi"));
+ * ```
  */
 
-// WASM module types (loaded dynamically)
+// ── WASM bindings (internal) ──────────────────────────────────────────────
+
 interface WasmModule {
   default(): Promise<void>;
-  WebServer: WasmWebServerCtor;
-  WebStream: WasmWebStreamCtor;
-}
-
-interface WasmWebServerCtor {
-  create(
-    secretKeyHex: string | null,
-    relayUrls: string[],
-  ): Promise<WasmWebServer>;
-}
-
-interface WasmWebStreamCtor {
-  new (): WasmWebStream;
+  WebServer: {
+    create(
+      secretKeyHex: string | null,
+      relayUrls: string[],
+    ): Promise<WasmWebServer>;
+  };
 }
 
 interface WasmWebServer {
@@ -29,7 +27,7 @@ interface WasmWebServer {
   broadcast(payload: Uint8Array): Promise<void>;
   send(destinationId: string, payload: Uint8Array): Promise<void>;
   subscribe_messages(
-    callback: (
+    cb: (
       source: string,
       destination: string | null,
       payload: Uint8Array,
@@ -41,12 +39,10 @@ interface WasmWebServer {
   remove_peer(id: string): void;
   set_pairing_enabled(enabled: boolean): void;
   subscribe_pairing_offers(
-    callback: (handle: number, remote: string, payload: Uint8Array) => void,
+    cb: (handle: number, remote: string, payload: Uint8Array) => void,
   ): number;
-  send_pairing_offer(
-    destinationId: string,
-    payload: Uint8Array,
-  ): Promise<Uint8Array>;
+  unsubscribe_pairing_offers(handle: number): void;
+  send_pairing_offer(dest: string, payload: Uint8Array): Promise<Uint8Array>;
   reply_to_pairing_offer(handle: number, payload: Uint8Array): Promise<void>;
   open_stream(peerId: string): Promise<WasmWebStream>;
   close(): Promise<void>;
@@ -58,151 +54,169 @@ interface WasmWebStream {
   read_to_end(limit: number): Promise<Uint8Array>;
 }
 
-/** Callback for incoming messages. `destination` is null for broadcasts. */
-export type MessageCallback = (
-  source: string,
-  destination: string | null,
-  payload: Uint8Array,
-) => void;
-
-/** Callback for incoming pairing offers. */
-export type PairingOfferCallback = (
-  handle: number,
-  remote: string,
-  payload: Uint8Array,
-) => void;
-
-/** Options for creating a WebServer. */
-export interface CreateOptions {
-  /** Hex-encoded secret key for a stable endpoint identity. Generated if omitted. */
-  secretKey?: string;
-  /** Relay server URLs. Defaults to public n0 relays if omitted. */
-  relayUrls?: string[];
-}
-
 let wasmModule: Promise<WasmModule> | undefined;
 
-/** Load and initialize the WASM module once per page. */
 async function loadWasm(): Promise<WasmModule> {
-  wasmModule ??= import("../pkg/iroh_chain_wasm.js").then(async (module) => {
-    await module.default();
-    return module as unknown as WasmModule;
+  wasmModule ??= import("../pkg/iroh_chain_wasm.js").then(async (m) => {
+    await m.default();
+    return m as unknown as WasmModule;
   });
   return wasmModule;
 }
 
+// ── Public types ──────────────────────────────────────────────────────────
+
+/** Branded endpoint identifier (hex-encoded public key). */
+export type EndpointId = string & { readonly __brand: "EndpointId" };
+
+/** An incoming mesh message. `destination` is null for broadcasts. */
+export interface Message {
+  readonly source: EndpointId;
+  readonly destination: EndpointId | null;
+  readonly payload: Uint8Array;
+}
+
+/** An incoming pairing offer. Call `reply()` to respond. */
+export interface PairingOffer {
+  readonly remote: EndpointId;
+  readonly payload: Uint8Array;
+  reply(payload: Uint8Array): Promise<void>;
+}
+
+export interface EndpointOptions {
+  /** Hex secret key for a stable identity. Random if omitted. */
+  secretKey?: string;
+  /** Relay URLs. Defaults to public n0 relays. */
+  relayUrls?: string[];
+}
+
+/** Returns an unsubscribe function. */
+export type Unsubscribe = () => void;
+
+// ── Stream ────────────────────────────────────────────────────────────────
+
 /** Bidirectional byte stream to a peer. */
-export class WebStream {
-  private readonly stream: WasmWebStream;
+export class Stream {
+  private readonly inner: WasmWebStream;
 
-  /** @internal Use WebServer.openStream() instead. */
-  constructor(stream: WasmWebStream) {
-    this.stream = stream;
+  /** @internal Use Endpoint.openStream() instead. */
+  constructor(inner: WasmWebStream) {
+    this.inner = inner;
   }
 
-  /** Write bytes to the stream. */
-  async write(payload: Uint8Array): Promise<void> {
-    await this.stream.write(payload);
+  write(payload: Uint8Array): Promise<void> {
+    return this.inner.write(payload);
   }
 
-  /** Signal that no more bytes will be written. */
+  /** Half-close the write side. */
   finish(): void {
-    this.stream.finish();
+    this.inner.finish();
   }
 
-  /** Read until the stream ends, up to `limit` bytes. */
-  async readToEnd(limit: number): Promise<Uint8Array> {
-    return await this.stream.read_to_end(limit);
+  /** Read everything until the peer finishes, up to `limit` bytes. */
+  readToEnd(limit: number): Promise<Uint8Array> {
+    return this.inner.read_to_end(limit);
   }
 }
 
-/** Browser mesh endpoint. */
-export class WebServer {
+// ── Endpoint ──────────────────────────────────────────────────────────────
+
+/** A browser mesh endpoint. */
+export class Endpoint {
   private constructor(private readonly server: WasmWebServer) {}
 
-  /** Create a new browser endpoint. */
-  static async create(options: CreateOptions = {}): Promise<WebServer> {
-    const { WebServer: Ctor } = await loadWasm();
-    const server = await Ctor.create(
+  static async create(options: EndpointOptions = {}): Promise<Endpoint> {
+    const { WebServer } = await loadWasm();
+    const server = await WebServer.create(
       options.secretKey ?? null,
       options.relayUrls ?? [],
     );
-    return new WebServer(server);
+    return new Endpoint(server);
   }
 
-  /** Hex-encoded endpoint ID. */
-  get endpointId(): string {
-    return this.server.endpoint_id();
+  /** This endpoint's ID. */
+  get id(): EndpointId {
+    return this.server.endpoint_id() as EndpointId;
   }
 
-  /** Send a broadcast to all peers in the mesh. */
-  async broadcast(payload: Uint8Array): Promise<void> {
-    await this.server.broadcast(payload);
+  // messaging ──────────────────────────────────────────────────────────────
+
+  /** Broadcast to all peers in the mesh. */
+  broadcast(payload: Uint8Array): Promise<void> {
+    return this.server.broadcast(payload);
   }
 
-  /** Send a direct message to a specific endpoint. */
-  async send(destinationId: string, payload: Uint8Array): Promise<void> {
-    await this.server.send(destinationId, payload);
+  /** Send a direct message to one peer. */
+  send(to: EndpointId, payload: Uint8Array): Promise<void> {
+    return this.server.send(to, payload);
   }
 
-  /** Subscribe to incoming messages. Returns a handle for unsubscribing. */
-  subscribeMessages(callback: MessageCallback): number {
-    return this.server.subscribe_messages(callback);
+  /** Listen for incoming messages. Returns an unsubscribe function. */
+  onMessage(listener: (msg: Message) => void): Unsubscribe {
+    const handle = this.server.subscribe_messages(
+      (source, destination, payload) => {
+        listener({
+          source: source as EndpointId,
+          destination:
+            destination === null ? null : (destination as EndpointId),
+          payload,
+        });
+      },
+    );
+    return () => this.server.unsubscribe_messages(handle);
   }
 
-  /** Remove a message subscription. */
-  unsubscribeMessages(handle: number): void {
-    this.server.unsubscribe_messages(handle);
+  // peers ──────────────────────────────────────────────────────────────────
+
+  /** Allowlisted peer IDs. */
+  get peers(): EndpointId[] {
+    return this.server.peers() as EndpointId[];
   }
 
-  /** List allowlisted peer endpoint IDs. */
-  peers(): string[] {
-    return this.server.peers();
-  }
-
-  /** Add a peer to the allowlist. */
-  addPeer(id: string): void {
+  addPeer(id: EndpointId): void {
     this.server.add_peer(id);
   }
 
-  /** Remove a peer from the allowlist. */
-  removePeer(id: string): void {
+  removePeer(id: EndpointId): void {
     this.server.remove_peer(id);
   }
 
-  /** Enable or disable pairing mode. */
-  setPairingEnabled(enabled: boolean): void {
+  // pairing ────────────────────────────────────────────────────────────────
+
+  /** Enable or disable accepting pairing offers. */
+  set pairingEnabled(enabled: boolean) {
     this.server.set_pairing_enabled(enabled);
   }
 
-  /** Subscribe to incoming pairing offers. Returns a handle. */
-  subscribePairingOffers(callback: PairingOfferCallback): number {
-    return this.server.subscribe_pairing_offers(callback);
+  /** Send a pairing offer. Resolves with the peer's reply. */
+  pair(to: EndpointId, payload: Uint8Array): Promise<Uint8Array> {
+    return this.server.send_pairing_offer(to, payload);
   }
 
-  /** Send a pairing offer to a peer. Resolves with the reply payload. */
-  async sendPairingOffer(
-    destinationId: string,
-    payload: Uint8Array,
-  ): Promise<Uint8Array> {
-    return await this.server.send_pairing_offer(destinationId, payload);
+  /** Listen for incoming pairing offers. Returns an unsubscribe function. */
+  onPairingOffer(listener: (offer: PairingOffer) => void): Unsubscribe {
+    const handle = this.server.subscribe_pairing_offers(
+      (offerHandle, remote, payload) => {
+        listener({
+          remote: remote as EndpointId,
+          payload,
+          reply: (replyPayload) =>
+            this.server.reply_to_pairing_offer(offerHandle, replyPayload),
+        });
+      },
+    );
+    return () => this.server.unsubscribe_pairing_offers(handle);
   }
 
-  /** Reply to a received pairing offer. */
-  async replyToPairingOffer(
-    handle: number,
-    payload: Uint8Array,
-  ): Promise<void> {
-    await this.server.reply_to_pairing_offer(handle, payload);
-  }
+  // streams ────────────────────────────────────────────────────────────────
 
   /** Open a bidirectional byte stream to a peer. */
-  async openStream(peerId: string): Promise<WebStream> {
-    const stream = await this.server.open_stream(peerId);
-    return new WebStream(stream);
+  async openStream(to: EndpointId): Promise<Stream> {
+    return new Stream(await this.server.open_stream(to));
   }
 
-  /** Shut down the endpoint. */
+  // lifecycle ──────────────────────────────────────────────────────────────
+
   async close(): Promise<void> {
     await this.server.close();
   }

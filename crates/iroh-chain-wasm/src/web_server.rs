@@ -149,6 +149,13 @@ impl WebServer {
         handle
     }
 
+    pub fn unsubscribe_pairing_offers(&self, handle: u32) {
+        self.pairing_callbacks
+            .lock()
+            .expect("pairing callbacks poisoned")
+            .remove(&handle);
+    }
+
     pub async fn reply_to_pairing_offer(
         &self,
         offer_handle: u32,

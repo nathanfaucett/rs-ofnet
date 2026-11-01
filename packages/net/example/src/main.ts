@@ -1,4 +1,4 @@
-import { WebServer } from "@ofnet/net";
+import { Endpoint } from "@ofnet/net";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -11,26 +11,30 @@ function log(msg: string) {
 
 async function main() {
   log("Creating Alice and Bob...");
-  const alice = await WebServer.create();
-  const bob = await WebServer.create();
+  const alice = await Endpoint.create();
+  const bob = await Endpoint.create();
 
-  document.getElementById("alice-id")!.textContent = alice.endpointId;
-  document.getElementById("bob-id")!.textContent = bob.endpointId;
-  log(`Alice: ${alice.endpointId}`);
-  log(`Bob:   ${bob.endpointId}`);
+  document.getElementById("alice-id")!.textContent = alice.id;
+  document.getElementById("bob-id")!.textContent = bob.id;
+  log(`Alice: ${alice.id}`);
+  log(`Bob:   ${bob.id}`);
 
-  alice.addPeer(bob.endpointId);
-  bob.addPeer(alice.endpointId);
+  alice.addPeer(bob.id);
+  bob.addPeer(alice.id);
   log("Peers added.");
 
-  bob.subscribeMessages((source, destination, payload) => {
-    const kind = destination === null ? "broadcast" : "direct";
-    log(`Bob ← ${kind} from ${source.slice(0, 12)}…: ${decoder.decode(payload)}`);
+  bob.onMessage((msg) => {
+    const kind = msg.destination === null ? "broadcast" : "direct";
+    log(
+      `Bob ← ${kind} from ${msg.source.slice(0, 12)}…: ${decoder.decode(msg.payload)}`,
+    );
   });
 
-  alice.subscribeMessages((source, destination, payload) => {
-    const kind = destination === null ? "broadcast" : "direct";
-    log(`Alice ← ${kind} from ${source.slice(0, 12)}…: ${decoder.decode(payload)}`);
+  alice.onMessage((msg) => {
+    const kind = msg.destination === null ? "broadcast" : "direct";
+    log(
+      `Alice ← ${kind} from ${msg.source.slice(0, 12)}…: ${decoder.decode(msg.payload)}`,
+    );
   });
 
   document.getElementById("alice-broadcast")!.addEventListener("click", () => {
@@ -38,7 +42,7 @@ async function main() {
   });
 
   document.getElementById("bob-send")!.addEventListener("click", () => {
-    bob.send(alice.endpointId, encoder.encode("Direct reply from Bob!"));
+    bob.send(alice.id, encoder.encode("Direct reply from Bob!"));
   });
 
   log("Ready. Click the buttons to send messages.");
