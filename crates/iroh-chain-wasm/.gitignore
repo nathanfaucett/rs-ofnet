@@ -1,5 +1,2 @@
-/esm
-/types
 /pkg
-/tsconfig.tsbuildinfo
-/node_modules
+/target

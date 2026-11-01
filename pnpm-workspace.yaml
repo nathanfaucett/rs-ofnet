@@ -1,4 +1,6 @@
 packages:
-  - "crates/iroh-chain-wasm"
+  - "packages/*"
+  - "packages/**/example"
 allowBuilds:
+  esbuild: true
   wasm-pack: true

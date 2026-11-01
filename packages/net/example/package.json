@@ -1,0 +1,19 @@
+{
+  "name": "ofnet-browser-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser example for @ofnet/net (mesh networking with two endpoints)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ofnet/net": "file:.."
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "^8.2.0"
+  }
+}
