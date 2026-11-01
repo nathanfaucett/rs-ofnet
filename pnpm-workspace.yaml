@@ -1,0 +1,4 @@
+packages:
+  - "crates/iroh-chain-wasm"
+allowBuilds:
+  wasm-pack: true

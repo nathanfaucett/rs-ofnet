@@ -1,0 +1,18 @@
+{
+  "name": "@ofnet/monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "lint:fix": "pnpm -r run lint:fix",
+    "format": "pnpm -r run format",
+    "format:fix": "pnpm -r run format:fix",
+    "wasm:build": "pnpm --filter @ofnet/iroh-chain-wasm run build:wasm",
+    "wasm:test": "pnpm --filter @ofnet/iroh-chain-wasm run test:wasm"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.3"
+  }
+}

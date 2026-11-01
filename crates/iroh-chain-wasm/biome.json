@@ -1,0 +1,14 @@
+{
+    "extends": "//",
+    "files": {
+        "ignoreUnknown": true,
+        "includes": [
+            "ts/**/*",
+            "examples/**/*",
+            "biome.json",
+            "package.json",
+            "tsconfig.json",
+            "vitest.config.ts"
+        ]
+    }
+}

@@ -18,6 +18,10 @@ help:
     @printf "  doc            Build workspace documentation\n"
     @printf "  build-wasm     Build the WASM crate for wasm32-unknown-unknown\n"
     @printf "  test-wasm      Run browser tests for the WASM crate in headless Chrome\n"
+    @printf "  npm-install    Install npm workspace dependencies (pnpm install)\n"
+    @printf "  npm-build      Build the npm workspace (wasm-pack + tsc)\n"
+    @printf "  npm-test       Run npm workspace tests\n"
+    @printf "  npm-lint       Lint npm workspace with biome\n"
 
 build:
     cargo build --workspace
@@ -57,3 +61,15 @@ build-wasm:
 
 test-wasm:
     wasm-pack test --headless --chrome crates/iroh-chain-wasm
+
+npm-install:
+    pnpm install
+
+npm-build:
+    pnpm --filter @ofnet/iroh-chain-wasm run build
+
+npm-test:
+    pnpm --filter @ofnet/iroh-chain-wasm run test
+
+npm-lint:
+    pnpm --filter @ofnet/iroh-chain-wasm run lint
