@@ -4,7 +4,8 @@
  * ```ts
  * import { Endpoint } from "@ofnet/net";
  *
- * const ep = await Endpoint.create();
+ * const ep = new Endpoint();
+ * await ep.ready;
  * ep.onMessage((msg) => console.log(new TextDecoder().decode(msg.payload)));
  * await ep.broadcast(new TextEncoder().encode("hi"));
  * ```
@@ -123,18 +124,24 @@ export class Stream {
 
 /** A browser mesh endpoint. */
 export class Endpoint {
-  private constructor(private readonly server: WasmWebServer) {}
+  /** Resolves when the endpoint is connected and ready. */
+  readonly ready: Promise<void>;
 
-  static async create(options: EndpointOptions = {}): Promise<Endpoint> {
+  private server!: WasmWebServer;
+
+  constructor(options: EndpointOptions = {}) {
+    this.ready = this.init(options);
+  }
+
+  private async init(options: EndpointOptions): Promise<void> {
     const { WebServer } = await loadWasm();
-    const server = await WebServer.create(
+    this.server = await WebServer.create(
       options.secretKey ?? null,
       options.relayUrls ?? [],
     );
-    return new Endpoint(server);
   }
 
-  /** This endpoint's ID. */
+  /** This endpoint's ID. Await `ready` first. */
   get id(): EndpointId {
     return this.server.endpoint_id() as EndpointId;
   }
@@ -142,13 +149,15 @@ export class Endpoint {
   // messaging ──────────────────────────────────────────────────────────────
 
   /** Broadcast to all peers in the mesh. */
-  broadcast(payload: Uint8Array): Promise<void> {
-    return this.server.broadcast(payload);
+  async broadcast(payload: Uint8Array): Promise<void> {
+    await this.ready;
+    await this.server.broadcast(payload);
   }
 
   /** Send a direct message to one peer. */
-  send(to: EndpointId, payload: Uint8Array): Promise<void> {
-    return this.server.send(to, payload);
+  async send(to: EndpointId, payload: Uint8Array): Promise<void> {
+    await this.ready;
+    await this.server.send(to, payload);
   }
 
   /** Listen for incoming messages. Returns an unsubscribe function. */
@@ -168,7 +177,7 @@ export class Endpoint {
 
   // peers ──────────────────────────────────────────────────────────────────
 
-  /** Allowlisted peer IDs. */
+  /** Allowlisted peer IDs. Await `ready` first. */
   get peers(): EndpointId[] {
     return this.server.peers() as EndpointId[];
   }
@@ -189,7 +198,8 @@ export class Endpoint {
   }
 
   /** Send a pairing offer. Resolves with the peer's reply. */
-  pair(to: EndpointId, payload: Uint8Array): Promise<Uint8Array> {
+  async pair(to: EndpointId, payload: Uint8Array): Promise<Uint8Array> {
+    await this.ready;
     return this.server.send_pairing_offer(to, payload);
   }
 
@@ -212,12 +222,14 @@ export class Endpoint {
 
   /** Open a bidirectional byte stream to a peer. */
   async openStream(to: EndpointId): Promise<Stream> {
+    await this.ready;
     return new Stream(await this.server.open_stream(to));
   }
 
   // lifecycle ──────────────────────────────────────────────────────────────
 
   async close(): Promise<void> {
+    await this.ready;
     await this.server.close();
   }
 }

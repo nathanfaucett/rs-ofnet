@@ -11,8 +11,9 @@ function log(msg: string) {
 
 async function main() {
   log("Creating Alice and Bob...");
-  const alice = await Endpoint.create();
-  const bob = await Endpoint.create();
+  const alice = new Endpoint();
+  const bob = new Endpoint();
+  await Promise.all([alice.ready, bob.ready]);
 
   document.getElementById("alice-id")!.textContent = alice.id;
   document.getElementById("bob-id")!.textContent = bob.id;

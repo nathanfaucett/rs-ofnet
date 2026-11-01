@@ -5,7 +5,8 @@ Mesh networking in the browser via [ofnet](https://github.com/aicacia/rs-ofnet) 
 ```ts
 import { Endpoint } from "@ofnet/net";
 
-const ep = await Endpoint.create();
+const ep = new Endpoint();
+await ep.ready;
 console.log(ep.id);
 
 ep.onMessage((msg) => {
@@ -20,7 +21,7 @@ await ep.close();
 
 |                                               |                              |
 | --------------------------------------------- | ---------------------------- |
-| `Endpoint.create(options?)`                   | Create a browser endpoint    |
+| `new Endpoint(options?)` + `await ep.ready`   | Create a browser endpoint    |
 | `ep.id`                                       | This endpoint's `EndpointId` |
 | `ep.broadcast(bytes)`                         | Send to all peers            |
 | `ep.send(peerId, bytes)`                      | Direct message to one peer   |
