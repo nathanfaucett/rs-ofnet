@@ -1,52 +1,10 @@
-import { Endpoint } from "@ofnet/net";
+import { mount } from "svelte";
+import App from "./App.svelte";
+import "./app.css";
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const target = document.getElementById("app");
+if (!target) throw new Error("missing #app element");
 
-const logEl = document.getElementById("log")!;
-function log(msg: string) {
-  logEl.textContent += msg + "\n";
-  logEl.scrollTop = logEl.scrollHeight;
-}
+const app = mount(App, { target });
 
-async function main() {
-  log("Creating Alice and Bob...");
-  const alice = new Endpoint();
-  const bob = new Endpoint();
-  await Promise.all([alice.ready, bob.ready]);
-
-  document.getElementById("alice-id")!.textContent = alice.id;
-  document.getElementById("bob-id")!.textContent = bob.id;
-  log(`Alice: ${alice.id}`);
-  log(`Bob:   ${bob.id}`);
-
-  alice.addPeer(bob.id);
-  bob.addPeer(alice.id);
-  log("Peers added.");
-
-  bob.onMessage((msg) => {
-    const kind = msg.destination === null ? "broadcast" : "direct";
-    log(
-      `Bob ← ${kind} from ${msg.source.slice(0, 12)}…: ${decoder.decode(msg.payload)}`,
-    );
-  });
-
-  alice.onMessage((msg) => {
-    const kind = msg.destination === null ? "broadcast" : "direct";
-    log(
-      `Alice ← ${kind} from ${msg.source.slice(0, 12)}…: ${decoder.decode(msg.payload)}`,
-    );
-  });
-
-  document.getElementById("alice-broadcast")!.addEventListener("click", () => {
-    alice.broadcast(encoder.encode("Hello from Alice!"));
-  });
-
-  document.getElementById("bob-send")!.addEventListener("click", () => {
-    bob.send(alice.id, encoder.encode("Direct reply from Bob!"));
-  });
-
-  log("Ready. Click the buttons to send messages.");
-}
-
-main().catch((err) => log(`Error: ${err}`));
+export default app;

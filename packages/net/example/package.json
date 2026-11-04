@@ -3,16 +3,25 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Browser example for @ofnet/net (mesh networking with two endpoints)",
+  "description": "Svelte + Tailwind browser example for @ofnet/net (mesh networking with two endpoints)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/"
   },
   "dependencies": {
     "@ofnet/net": "file:.."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "svelte": "^5.56.8",
+    "svelte-check": "^4.7.4",
+    "tailwindcss": "^4.3.3",
     "typescript": "5.9.3",
     "vite": "^8.2.0"
   }

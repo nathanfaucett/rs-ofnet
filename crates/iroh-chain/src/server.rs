@@ -254,6 +254,16 @@ impl Server {
         self.inner.allowed.contains(endpoint_id)
     }
 
+    fn addr_with_relays(&self, addr: impl Into<EndpointAddr>) -> EndpointAddr {
+        let mut addr = addr.into();
+        for url in crate::mesh::endpoint_relay_urls(&self.inner.endpoint) {
+            if !addr.relay_urls().any(|existing| existing == &url) {
+                addr = addr.with_relay_url(url);
+            }
+        }
+        addr
+    }
+
     pub async fn send_pairing_offer(
         &self,
         endpoint: impl Into<EndpointAddr>,
@@ -263,7 +273,7 @@ impl Server {
         let connection = self
             .inner
             .endpoint
-            .connect(endpoint, PAIRING_ALPN)
+            .connect(self.addr_with_relays(endpoint), PAIRING_ALPN)
             .await
             .map_err(Error::other)?;
         let (mut send, mut recv) = connection.open_bi().await?;
@@ -307,7 +317,7 @@ impl Server {
         }
         self.inner
             .endpoint
-            .connect(id, alpn)
+            .connect(self.addr_with_relays(id), alpn)
             .await
             .map_err(Error::other)
     }

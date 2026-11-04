@@ -30,6 +30,7 @@ wasm-opt = false
 
 [dev-dependencies]
 # Web
+futures = { version = "0.3", default-features = false, features = ["std"] }
 gloo-timers = { version = "0.3", default-features = false, features = [
     "futures",
 ] }

@@ -10,7 +10,7 @@ use std::{
 };
 
 use iroh::{
-    Endpoint, EndpointId,
+    Endpoint, EndpointAddr, EndpointId, RelayUrl, Watcher,
     endpoint::{Connection, VarInt},
     protocol::{AcceptError, ProtocolHandler},
 };
@@ -60,6 +60,9 @@ const MAX_FRAME: usize = HEADER + MAX_PAYLOAD;
 const SEEN_LIMIT: usize = 4096;
 const RETRY: Duration = Duration::from_secs(2);
 const IO_TIMEOUT: Duration = Duration::from_secs(10);
+const ON_DEMAND_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const PUBLISH_ATTEMPTS: u32 = 3;
+const PUBLISH_BACKOFF: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
 pub struct Message {
@@ -98,6 +101,19 @@ impl fmt::Debug for Mesh {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Mesh").finish_non_exhaustive()
     }
+}
+
+pub(crate) fn endpoint_relay_urls(endpoint: &Endpoint) -> Vec<RelayUrl> {
+    let from_addr: Vec<RelayUrl> = endpoint.addr().relay_urls().cloned().collect();
+    if !from_addr.is_empty() {
+        return from_addr;
+    }
+    let mut status = endpoint.home_relay_status();
+    status
+        .get()
+        .iter()
+        .map(|relay| relay.url().clone())
+        .collect()
 }
 
 fn neighbors(self_id: EndpointId, ids: Vec<EndpointId>) -> BTreeSet<EndpointId> {
@@ -238,9 +254,23 @@ impl Mesh {
         if destination == Some(source) {
             return Ok(());
         }
-        self.reconcile(true).await;
-        self.forward(id, &message, hop_limit(self.inner.peers.ids().len()), None)
-            .await
+        let hops = hop_limit(self.inner.peers.ids().len());
+        let mut last_error = None;
+        for attempt in 0..PUBLISH_ATTEMPTS {
+            self.reconcile(true).await;
+            match self.forward(id, &message, hops, None).await {
+                Ok(()) => return Ok(()),
+                Err(error) if error.kind() == ErrorKind::NotConnected => {
+                    last_error = Some(error);
+                    if attempt + 1 < PUBLISH_ATTEMPTS {
+                        sleep(PUBLISH_BACKOFF).await;
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Err(last_error
+            .unwrap_or_else(|| Error::new(ErrorKind::NotConnected, "no mesh neighbor connected")))
     }
 
     fn remember(&self, id: [u8; 32]) -> bool {
@@ -278,13 +308,18 @@ impl Mesh {
             })
             .map(|(_, (conn, _))| conn.clone())
             .collect();
-        if connections.is_empty() && incoming.is_none() && !desired.is_empty() {
-            return Err(Error::new(
-                ErrorKind::NotConnected,
-                "no mesh neighbor connected",
-            ));
+        if connections.is_empty() {
+            return if incoming.is_none() && !desired.is_empty() {
+                Err(Error::new(
+                    ErrorKind::NotConnected,
+                    "no mesh neighbor connected",
+                ))
+            } else {
+                Ok(())
+            };
         }
         let bytes = frame(id, message, hops);
+        let mut delivered = false;
         let mut first_error = None;
         for conn in connections {
             let result = timeout(IO_TIMEOUT, async {
@@ -295,11 +330,20 @@ impl Mesh {
             .await
             .ok_or_else(|| Error::new(ErrorKind::TimedOut, "mesh send timed out"))
             .and_then(|result| result);
-            if let Err(error) = result {
-                first_error.get_or_insert(error);
+            match result {
+                Ok(()) => delivered = true,
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                }
             }
         }
-        first_error.map_or(Ok(()), Err)
+        if delivered {
+            Ok(())
+        } else {
+            Err(first_error.unwrap_or_else(|| {
+                Error::new(ErrorKind::NotConnected, "no mesh neighbor connected")
+            }))
+        }
     }
 
     async fn reconcile(&self, on_demand: bool) {
@@ -320,6 +364,7 @@ impl Mesh {
                 }
             });
         }
+        let relay_urls = endpoint_relay_urls(&self.inner.endpoint);
         for id in desired {
             if self.inner.endpoint.is_closed() {
                 break;
@@ -330,8 +375,20 @@ impl Mesh {
             {
                 continue;
             }
-            if let Some(Ok(conn)) =
-                timeout(IO_TIMEOUT, self.inner.endpoint.connect(id, MESH_ALPN)).await
+            let mut addr = EndpointAddr::new(id);
+            for url in &relay_urls {
+                addr = addr.with_relay_url(url.clone());
+            }
+            let connect_timeout = if on_demand {
+                ON_DEMAND_CONNECT_TIMEOUT
+            } else {
+                IO_TIMEOUT
+            };
+            if let Some(Ok(conn)) = timeout(
+                connect_timeout,
+                self.inner.endpoint.connect(addr, MESH_ALPN),
+            )
+            .await
                 && self.register(conn.clone(), true).await
             {
                 let weak = Arc::downgrade(&self.inner);

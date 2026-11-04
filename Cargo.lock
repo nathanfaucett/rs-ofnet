@@ -1431,6 +1431,7 @@ dependencies = [
 name = "iroh-chain-wasm"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "gloo-timers",
  "iroh",
  "iroh-chain",

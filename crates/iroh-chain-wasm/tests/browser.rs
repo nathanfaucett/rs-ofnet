@@ -20,6 +20,10 @@ async fn settle(rounds: u32) {
     }
 }
 
+async fn wait_for_relays() {
+    gloo_timers::future::TimeoutFuture::new(15_000).await;
+}
+
 fn message_recorder() -> (
     Rc<RefCell<Option<Vec<u8>>>>,
     Closure<dyn FnMut(String, JsValue, js_sys::Uint8Array)>,
@@ -61,6 +65,7 @@ async fn broadcast_reaches_peer() {
     let b_id = b.endpoint_id();
     a.add_peer(&b_id).expect("add peer");
     b.add_peer(&a.endpoint_id()).expect("add peer");
+    wait_for_relays().await;
 
     let (recorded, closure) = message_recorder();
     let handle = b.subscribe_messages(closure.as_ref().unchecked_ref::<js_sys::Function>().clone());
@@ -83,6 +88,7 @@ async fn direct_message_reaches_only_destination() {
     for (server, other) in [(&a, &b), (&a, &c), (&b, &a), (&b, &c), (&c, &a), (&c, &b)] {
         server.add_peer(&other.endpoint_id()).expect("add peer");
     }
+    wait_for_relays().await;
 
     let (recorded_b, closure_b) = message_recorder();
     let handle_b = b.subscribe_messages(
@@ -125,6 +131,7 @@ async fn pairing_offer_and_reply() {
     let b_id = b.endpoint_id();
     a.add_peer(&b_id).expect("add peer");
     b.add_peer(&a.endpoint_id()).expect("add peer");
+    wait_for_relays().await;
 
     let offers = Rc::new(RefCell::new(None::<(u32, String, Vec<u8>)>));
     let sink = Rc::clone(&offers);

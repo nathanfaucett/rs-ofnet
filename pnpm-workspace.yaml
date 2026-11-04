@@ -4,3 +4,6 @@ packages:
 allowBuilds:
   esbuild: true
   wasm-pack: true
+minimumReleaseAgeExclude:
+  - '@tailwindcss/node@4.3.4'
+  - '@tailwindcss/oxide-wasm32-wasi@4.3.4'
