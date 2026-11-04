@@ -1,5 +1,5 @@
 {
-    "name": "@ofnet/net",
+    "name": "@ofsdk/net",
     "version": "0.1.0",
     "private": true,
     "type": "module",

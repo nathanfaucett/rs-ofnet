@@ -1,9 +1,9 @@
 {
-  "name": "ofnet-browser-example",
+  "name": "@ofsdk/ofnet-browser-example",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Svelte + Tailwind browser example for @ofnet/net (mesh networking with two endpoints)",
+  "description": "Svelte + Tailwind browser example for @ofsdk/net (mesh networking with two endpoints)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -13,7 +13,7 @@
     "lint:fix": "biome check --write src/"
   },
   "dependencies": {
-    "@ofnet/net": "file:.."
+    "@ofsdk/net": "file:.."
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",

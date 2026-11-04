@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Endpoint, type Message } from "@ofnet/net";
+    import { Endpoint, type Message } from "@ofsdk/net";
 
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
@@ -83,7 +83,7 @@
 </script>
 
 <main class="mx-auto max-w-2xl px-4 py-12 font-sans text-base leading-relaxed">
-    <h1 class="mb-4 text-2xl font-bold">@ofnet/net — Two browser endpoints</h1>
+    <h1 class="mb-4 text-2xl font-bold">@ofsdk/net — Two browser endpoints</h1>
     <p class="mb-8 text-gray-600">
         Both endpoints connect through public n0 relays. Alice broadcasts; Bob
         replies directly.

@@ -1,9 +1,9 @@
-# @ofnet/net
+# @ofsdk/net
 
 Mesh networking in the browser via [ofnet](https://github.com/aicacia/rs-ofnet) WASM.
 
 ```ts
-import { Endpoint } from "@ofnet/net";
+import { Endpoint } from "@ofsdk/net";
 
 const ep = new Endpoint();
 await ep.ready;

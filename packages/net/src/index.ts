@@ -1,8 +1,8 @@
 /**
- * @ofnet/net — mesh networking in the browser via ofnet WASM.
+ * @ofsdk/net — mesh networking in the browser via ofnet WASM.
  *
  * ```ts
- * import { Endpoint } from "@ofnet/net";
+ * import { Endpoint } from "@ofsdk/net";
  *
  * const ep = new Endpoint();
  * await ep.ready;

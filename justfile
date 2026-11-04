@@ -19,7 +19,7 @@ help:
     @printf "  build-wasm     Build the WASM crate for wasm32-unknown-unknown\n"
     @printf "  test-wasm      Run browser tests for the WASM crate in headless Chrome\n"
     @printf "  npm-install    Install npm workspace dependencies (pnpm install)\n"
-    @printf "  net-build      Build @ofnet/net (wasm-pack + tsc)\n"
+    @printf "  net-build      Build @ofsdk/net (wasm-pack + tsc)\n"
     @printf "  net-example    Run the browser example dev server\n"
     @printf "  npm-lint       Lint npm workspace with biome\n"
 
@@ -66,10 +66,10 @@ npm-install:
     pnpm install
 
 net-build:
-    pnpm --filter @ofnet/net run build
+    pnpm --filter @ofsdk/net run build
 
 net-example:
-    pnpm --filter ofnet-browser-example run dev
+    pnpm --filter @ofsdk/ofnet-browser-example run dev
 
 npm-lint:
     pnpm -r run lint

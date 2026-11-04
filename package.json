@@ -1,5 +1,5 @@
 {
-  "name": "@ofnet/monorepo",
+  "name": "@ofsdk/monorepo",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,10 +9,10 @@
     "lint:fix": "pnpm -r run lint:fix",
     "format": "pnpm -r run format",
     "format:fix": "pnpm -r run format:fix",
-    "net:build": "pnpm --filter @ofnet/net run build",
-    "net:example:dev": "pnpm --filter ofnet-browser-example run dev",
-    "net:example:build": "pnpm --filter ofnet-browser-example run build",
-    "net:example:preview": "pnpm --filter ofnet-browser-example run preview"
+    "net:build": "pnpm --filter @ofsdk/net run build",
+    "net:example:dev": "pnpm --filter @ofsdk/ofnet-browser-example run dev",
+    "net:example:build": "pnpm --filter @ofsdk/ofnet-browser-example run build",
+    "net:example:preview": "pnpm --filter @ofsdk/ofnet-browser-example run preview"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3"
