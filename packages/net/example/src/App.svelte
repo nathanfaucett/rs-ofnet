@@ -40,8 +40,8 @@
         b.addPeer(a.id);
         log("Peers added.");
 
-        b.onMessage(handleMessage("Bob"));
-        a.onMessage(handleMessage("Alice"));
+        b.mesh.onMessage(handleMessage("Bob"));
+        a.mesh.onMessage(handleMessage("Alice"));
 
         log("Ready. Click the buttons to send messages.");
     }
@@ -64,7 +64,7 @@
         const ep = alice;
         if (!ep) return;
         void send(
-            () => ep.broadcast(encoder.encode("Hello from Alice!")),
+            () => ep.mesh.broadcast(encoder.encode("Hello from Alice!")),
             "broadcast",
         );
     }
@@ -74,7 +74,7 @@
         const b = bob;
         if (!a || !b) return;
         void send(
-            () => b.send(a.id, encoder.encode("Direct reply from Bob!")),
+            () => b.mesh.send(a.id, encoder.encode("Direct reply from Bob!")),
             "direct",
         );
     }
