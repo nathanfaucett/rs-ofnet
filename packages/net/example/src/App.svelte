@@ -1,85 +1,85 @@
 <script lang="ts">
-    import { Endpoint, type Message } from "@ofsdk/net";
+import { Endpoint, type Message } from "@ofsdk/net";
 
-    const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
-    let alice: Endpoint | undefined = $state();
-    let bob: Endpoint | undefined = $state();
-    let aliceId = $state("connecting…");
-    let bobId = $state("connecting…");
-    let logs: string[] = $state([]);
+let alice: Endpoint | undefined = $state();
+let bob: Endpoint | undefined = $state();
+let aliceId = $state("connecting…");
+let bobId = $state("connecting…");
+let logs: string[] = $state([]);
 
-    function log(msg: string) {
-        logs = [...logs, msg];
-    }
+function log(msg: string) {
+  logs = [...logs, msg];
+}
 
-    function handleMessage(name: string) {
-        return (msg: Message) => {
-            const kind = msg.destination === null ? "broadcast" : "direct";
-            log(
-                `${name} ← ${kind} from ${msg.source.slice(0, 12)}…: ${decoder.decode(msg.payload)}`,
-            );
-        };
-    }
+function handleMessage(name: string) {
+  return (msg: Message) => {
+    const kind = msg.destination === null ? "broadcast" : "direct";
+    log(
+      `${name} ← ${kind} from ${msg.source.slice(0, 12)}…: ${decoder.decode(msg.payload)}`
+    );
+  };
+}
 
-    async function init() {
-        log("Creating Alice and Bob...");
-        const a = new Endpoint();
-        const b = new Endpoint();
-        await Promise.all([a.ready, b.ready]);
+async function init() {
+  log("Creating Alice and Bob...");
+  const a = new Endpoint();
+  const b = new Endpoint();
+  await Promise.all([a.ready, b.ready]);
 
-        alice = a;
-        bob = b;
-        aliceId = a.id;
-        bobId = b.id;
-        log(`Alice: ${a.id}`);
-        log(`Bob:   ${b.id}`);
+  alice = a;
+  bob = b;
+  aliceId = a.id;
+  bobId = b.id;
+  log(`Alice: ${a.id}`);
+  log(`Bob:   ${b.id}`);
 
-        a.addPeer(b.id);
-        b.addPeer(a.id);
-        log("Peers added.");
+  a.addPeer(b.id);
+  b.addPeer(a.id);
+  log("Peers added.");
 
-        b.mesh.onMessage(handleMessage("Bob"));
-        a.mesh.onMessage(handleMessage("Alice"));
+  b.mesh.onMessage(handleMessage("Bob"));
+  a.mesh.onMessage(handleMessage("Alice"));
 
-        log("Ready. Click the buttons to send messages.");
-    }
+  log("Ready. Click the buttons to send messages.");
+}
 
-    let sending = $state(false);
+let sending = $state(false);
 
-    async function send(fn: () => Promise<void>, label: string) {
-        sending = true;
-        try {
-            await fn();
-            log(`${label} sent.`);
-        } catch (err) {
-            log(`Error sending ${label}: ${err}`);
-        } finally {
-            sending = false;
-        }
-    }
+async function send(fn: () => Promise<void>, label: string) {
+  sending = true;
+  try {
+    await fn();
+    log(`${label} sent.`);
+  } catch (err) {
+    log(`Error sending ${label}: ${err}`);
+  } finally {
+    sending = false;
+  }
+}
 
-    function broadcast() {
-        const ep = alice;
-        if (!ep) return;
-        void send(
-            () => ep.mesh.broadcast(encoder.encode("Hello from Alice!")),
-            "broadcast",
-        );
-    }
+function broadcast() {
+  const ep = alice;
+  if (!ep) return;
+  void send(
+    () => ep.mesh.broadcast(encoder.encode("Hello from Alice!")),
+    "broadcast"
+  );
+}
 
-    function sendDirect() {
-        const a = alice;
-        const b = bob;
-        if (!a || !b) return;
-        void send(
-            () => b.mesh.send(a.id, encoder.encode("Direct reply from Bob!")),
-            "direct",
-        );
-    }
+function sendDirect() {
+  const a = alice;
+  const b = bob;
+  if (!a || !b) return;
+  void send(
+    () => b.mesh.send(a.id, encoder.encode("Direct reply from Bob!")),
+    "direct"
+  );
+}
 
-    init().catch((err) => log(`Error: ${err}`));
+init().catch((err) => log(`Error: ${err}`));
 </script>
 
 <main class="mx-auto max-w-2xl px-4 py-12 font-sans text-base leading-relaxed">
