@@ -21,7 +21,7 @@ axum = ["dep:axum"]
 
 [dependencies]
 # Iroh
-iroh = { version = "1.1", default-features = false, features = [] }
+iroh = { version = "1.4", default-features = false, features = [] }
 
 
 # Web
@@ -68,7 +68,7 @@ web-time = { version = "1.1", default-features = false }
 cfg_aliases = { version = "0.2", default-features = false }
 
 [dev-dependencies]
-iroh = { version = "1.1", default-features = true }
+iroh = { version = "1.4", default-features = true }
 
 log = "0.4"
 env_logger = "0.11"
