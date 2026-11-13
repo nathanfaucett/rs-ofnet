@@ -10,7 +10,7 @@ pub struct WebStream {
 }
 
 impl WebStream {
-    pub(crate) fn new(connection: Connection, send: SendStream, recv: RecvStream) -> Self {
+    pub fn new(connection: Connection, send: SendStream, recv: RecvStream) -> Self {
         Self {
             _connection: connection,
             send,

@@ -21,12 +21,12 @@ use crate::{EndpointIdStore, PAIRING_ALPN};
 type TemporaryPeers = BTreeMap<(iroh::EndpointId, Vec<u8>), Instant>;
 
 #[derive(Clone, Default)]
-pub(crate) struct AlpnAllowlist {
+pub struct AlpnAllowlist {
     peers: Arc<Mutex<TemporaryPeers>>,
 }
 
 impl AlpnAllowlist {
-    pub(crate) fn allow_for(&self, peer: iroh::EndpointId, alpn: &[u8], duration: Duration) {
+    pub fn allow_for(&self, peer: iroh::EndpointId, alpn: &[u8], duration: Duration) {
         let mut peers = self.peers.lock().expect("ALPN allowlist lock poisoned");
         peers.retain(|_, expires_at| *expires_at > Instant::now());
         peers.insert((peer, alpn.to_vec()), Instant::now() + duration);
@@ -46,7 +46,7 @@ pub struct AllowlistHook {
 }
 
 impl AllowlistHook {
-    pub(crate) fn new(
+    pub fn new(
         allowed: EndpointIdStore,
         pairing_enabled: Arc<AtomicBool>,
         alpn_allowlist: AlpnAllowlist,

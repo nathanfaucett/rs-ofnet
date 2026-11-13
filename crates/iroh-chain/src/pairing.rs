@@ -19,7 +19,7 @@ pub struct PairingOffer {
 }
 
 impl PairingOffer {
-    pub(crate) fn new(
+    pub fn new(
         remote_id: EndpointId,
         payload: Vec<u8>,
         response: SendStream,
@@ -59,7 +59,7 @@ impl PairingOffer {
 
 pub type PairingEvent = PairingOffer;
 
-pub(crate) fn validate_payload(payload: &[u8]) -> Result<(), Error> {
+pub fn validate_payload(payload: &[u8]) -> Result<(), Error> {
     if payload.len() > MAX_PAIRING_PAYLOAD_LENGTH {
         return Err(Error::new(
             ErrorKind::InvalidInput,

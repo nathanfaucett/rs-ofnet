@@ -3,12 +3,12 @@ use iroh::{
     endpoint::{Builder, presets, presets::Preset},
 };
 
-pub(crate) struct WebPreset {
+pub struct WebPreset {
     relays: Vec<RelayUrl>,
 }
 
 impl WebPreset {
-    pub(crate) fn new(relay_urls: &[String]) -> Result<Self, String> {
+    pub fn new(relay_urls: &[String]) -> Result<Self, String> {
         let relays = relay_urls
             .iter()
             .map(|url| url.parse::<RelayUrl>().map_err(|error| error.to_string()))

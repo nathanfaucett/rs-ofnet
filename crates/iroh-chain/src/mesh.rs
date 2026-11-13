@@ -103,7 +103,7 @@ impl fmt::Debug for Mesh {
     }
 }
 
-pub(crate) fn endpoint_relay_urls(endpoint: &Endpoint) -> Vec<RelayUrl> {
+pub fn endpoint_relay_urls(endpoint: &Endpoint) -> Vec<RelayUrl> {
     let from_addr: Vec<RelayUrl> = endpoint.addr().relay_urls().cloned().collect();
     if !from_addr.is_empty() {
         return from_addr;
