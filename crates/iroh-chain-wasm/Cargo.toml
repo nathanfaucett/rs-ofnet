@@ -35,3 +35,6 @@ gloo-timers = { version = "0.3", default-features = false, features = [
     "futures",
 ] }
 wasm-bindgen-test = { version = "0.3" }
+
+[lints]
+workspace = true

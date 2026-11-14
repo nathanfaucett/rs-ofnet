@@ -73,3 +73,6 @@ iroh = { version = "1.4", default-features = true }
 log = "0.4"
 env_logger = "0.11"
 test-log = "0.2"
+
+[lints]
+workspace = true
